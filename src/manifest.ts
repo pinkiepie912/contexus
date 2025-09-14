@@ -5,9 +5,9 @@ export default defineManifest({
   name: "Contexus",
   version: "0.0.1",
 
-  action: { default_popup: "ui/popup/index.html" },
+  action: { default_popup: "src/ui/popup/index.html" },
   side_panel: { default_path: "src/sidepanel/index.html" },
-  options_page: "ui/options/index.html",
+  options_page: "src/ui/options/index.html",
   background: { service_worker: "src/background/index.ts", type: "module" },
 
   icons: {
@@ -19,6 +19,7 @@ export default defineManifest({
     {
       matches: [
         "https://chat.openai.com/*",
+        "https://chatgpt.com/*",
         "https://gemini.google.com/*",
         "https://claude.ai/*",
       ],
