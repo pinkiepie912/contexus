@@ -26,8 +26,7 @@
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
 
-    "noEmit": true,
-    "isolatedModules": true // 각 파일을 독립된 모듈로 취급 (Vite 사용 시 권장)
+    "noEmit": true
   },
   "include": ["src"],
   "exclude": ["node_modules"]

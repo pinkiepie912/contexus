@@ -6,16 +6,16 @@ export default defineManifest({
   version: "0.0.1",
   action: { default_popup: "ui/popup/index.html" },
   options_page: "ui/options/index.html",
-  background: { service_worker: "background/index.js", type: "module" },
+  background: { service_worker: "src/background/index.ts", type: "module" },
   icons: {
-    "16": "assets/icon16.png",
-    "48": "assets/icon48.png",
-    "128": "assets/icon128.png"
+    // "16": "assets/icon16.png",
+    // "48": "assets/icon48.png",
+    // "128": "assets/icon128.png"
   },
   content_scripts: [
     {
       matches: ["https://*/*", "http://*/*"],
-      js: ["content/index.js"],
+      js: ["src/content/index.ts"],
       run_at: "document_idle"
     }
   ],
