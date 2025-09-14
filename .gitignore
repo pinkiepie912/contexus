@@ -31,3 +31,5 @@ Thumbs.db
 # Chrome extension specific
 *.pem
 *.crx
+
+/.claude
