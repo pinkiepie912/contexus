@@ -4,9 +4,12 @@ export default defineManifest({
   manifest_version: 3,
   name: "My Chrome Extension",
   version: "0.0.1",
+
   action: { default_popup: "ui/popup/index.html" },
+  side_panel: { default_path: "src/sidepanel/index.html" },
   options_page: "ui/options/index.html",
   background: { service_worker: "src/background/index.ts", type: "module" },
+
   icons: {
     // "16": "assets/icon16.png",
     // "48": "assets/icon48.png",
@@ -14,12 +17,18 @@ export default defineManifest({
   },
   content_scripts: [
     {
-      matches: ["https://*/*", "http://*/*"],
+      matches: [
+        "https://chat.openai.com/*",
+        "https://gemini.google.com/*",
+        "https://claude.ai/*",
+      ],
       js: ["src/content/index.ts"],
-      run_at: "document_idle"
-    }
+      run_at: "document_idle",
+    },
   ],
-  permissions: [],
-  host_permissions: []
+  permissions: [
+    'sidePanel',
+    'storage',
+  ],
+  host_permissions: [],
 });
-
