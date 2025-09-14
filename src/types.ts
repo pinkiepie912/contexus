@@ -98,8 +98,8 @@ export interface ChromeMessage {
 export interface SaveSnippetPayload {
   content: string;
   sourceUrl: string;
-  title?: string;
-  tags?: string[];
+  title?: string | undefined;
+  tags: string[];
   platform?: Snippet['platform'];
 }
 
@@ -108,8 +108,8 @@ export interface SaveSnippetPayload {
  */
 export interface SearchSnippetsPayload {
   query: string;
-  limit?: number;
-  offset?: number;
+  limit?: number | undefined;
+  offset?: number | undefined ;
 }
 
 /**

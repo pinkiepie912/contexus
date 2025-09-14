@@ -32,10 +32,13 @@
 
 - **### Task 2.1: 백그라운드 서비스 워커 설정 및 시딩**
     - **ACTION:** `src/background/index.ts` 파일을 생성합니다. `chrome.runtime.onInstalled` 이벤트 발생 시 기본 `Role` 데이터를 DB에 시딩하는 로직을 구현합니다.
+    - **MCP 서버**: context7 MCP를 사용합니다.
 - **### Task 2.2: 스니펫 저장 API 구현**
     - **ACTION:** `src/background/index.ts`에 `SAVE_SNIPPET` 타입의 메시지를 수신하여 IndexedDB에 스니펫을 저장하는 리스너를 추가합니다.
+    - **MCP 서버**: context7 MCP를 사용합니다.
 - **### Task 2.3: 데이터 조회 API 구현**
     - **ACTION:** `src/background/index.ts`에 `SEARCH_SNIPPETS`, `GET_ALL_ROLES` 등 Side Panel UI에서 필요한 데이터를 조회하는 메시지 리스너를 추가합니다.
+    - **MCP 서버**: context7 MCP를 사용합니다.
 
 ### **Feature 3: 컨텐츠 스크립트 설정 (Web Sensor)**
 
