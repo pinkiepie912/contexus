@@ -47,8 +47,9 @@ export class ShadowDOMRenderer {
         }
         return
       }
-    } catch (_) {
+    } catch (error) {
       // Fallback to <style> element below
+      console.debug('Failed to adopt style sheets:', error)
     }
 
     // Fallback: ensure only one base style element exists per shadow root
@@ -102,7 +103,9 @@ export class ShadowDOMRenderer {
       cleanup: () => {
         try {
           root.unmount()
-        } catch {}
+        } catch (error) {
+          console.debug('Failed to unmount React root:', error)
+        }
       }
     }
   }
