@@ -13,7 +13,7 @@ import type {
   SearchResponse,
   Snippet,
   Role
-} from '../types.js';
+} from '../types';
 
 /**
  * Base message sending function with error handling

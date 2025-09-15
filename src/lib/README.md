@@ -34,7 +34,7 @@ This directory contains the core utilities and services for the Contexus Chrome 
 
 ### Saving a Snippet (from content script)
 ```typescript
-import { content } from './lib/messaging.js';
+import { content } from './lib/messaging';
 
 // Capture selected text
 try {
@@ -53,7 +53,7 @@ try {
 
 ### Searching Snippets (from side panel)
 ```typescript
-import { searchSnippets } from './lib/messaging.js';
+import { searchSnippets } from './lib/messaging';
 
 const results = await searchSnippets('machine learning', {
   limit: 20,
@@ -68,7 +68,7 @@ results.results.forEach(snippet => {
 
 ### Working with Roles (from side panel)
 ```typescript
-import { getAllRoles, createRole } from './lib/messaging.js';
+import { getAllRoles, createRole } from './lib/messaging';
 
 // Get all available roles
 const roles = await getAllRoles();

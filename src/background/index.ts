@@ -8,7 +8,7 @@
  * - Message passing between different extension components
  */
 
-import { db, dbUtils } from '../lib/db.js';
+import { db, dbUtils } from '../lib/db';
 import type {
   ChromeMessage,
   SaveSnippetPayload,
@@ -16,7 +16,7 @@ import type {
   SearchResponse,
   Snippet,
   Role
-} from '../types.js';
+} from '../types';
 
 /**
  * Extension installation handler
@@ -134,9 +134,9 @@ async function handleSaveSnippet(
     const snippet: Omit<Snippet, 'id'> = {
       content: payload.content,
       sourceUrl: payload.sourceUrl || sender.tab?.url || '',
-      title: payload.title,
+      title: payload.title || 'Untitled',
       tags: payload.tags || [],
-      platform: platform,
+      platform: platform || 'other',
       createdAt: new Date(),
       updatedAt: new Date()
     };
@@ -172,8 +172,8 @@ async function handleSearchSnippets(
     console.log('[Contexus SW] Searching snippets:', payload.query);
 
     const results = await dbUtils.searchSnippets(payload.query, {
-      limit: payload.limit,
-      offset: payload.offset
+      limit: payload.limit || 20,
+      offset: payload.offset || 0
     });
 
     const total = await db.snippets.count();

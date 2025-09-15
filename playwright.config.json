@@ -1,0 +1,7 @@
+{
+  "browser": "chromium",
+  "userDataDir": "./.playwright-mcp/user-data",
+  "launchOptions": {
+    "headless": false
+  }
+}

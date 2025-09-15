@@ -8,7 +8,8 @@
 
 import Dexie, { type EntityTable } from "dexie";
 import { v4 as uuidv4 } from "uuid";
-import type { Snippet, Role } from "../types.js";
+
+import type { Snippet, Role } from "../types";
 
 /**
  * Contexus Database class extending Dexie
@@ -48,7 +49,7 @@ export class ContextusDB extends Dexie {
     });
 
     // Set up hooks for automatic timestamp and UUID management
-    this.snippets.hook("creating", function (primKey, obj, trans) {
+    this.snippets.hook("creating", function (_primKey, obj, _trans) {
       const snippet = obj as Snippet;
       // Generate UUID if not provided
       if (!snippet.id) {
@@ -60,12 +61,12 @@ export class ContextusDB extends Dexie {
 
     this.snippets.hook(
       "updating",
-      function (modifications, primKey, obj, trans) {
+      function (modifications, _primKey, _obj, _trans) {
         (modifications as Partial<Snippet>).updatedAt = new Date();
       },
     );
 
-    this.roles.hook("creating", function (primKey, obj, trans) {
+    this.roles.hook("creating", function (_primKey, obj, _trans) {
       const role = obj as Role;
       // Generate UUID if not provided
       if (!role.id) {
@@ -79,7 +80,7 @@ export class ContextusDB extends Dexie {
       }
     });
 
-    this.roles.hook("updating", function (modifications, primKey, obj, trans) {
+    this.roles.hook("updating", function (modifications, _primKey, _obj, _trans) {
       (modifications as Partial<Role>).updatedAt = new Date();
     });
 
@@ -279,4 +280,4 @@ export const dbUtils = {
 };
 
 // Export types for convenience
-export type { Snippet, Role } from "../types.js";
+export type { Snippet, Role } from "../types";
