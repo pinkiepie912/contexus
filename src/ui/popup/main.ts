@@ -1,3 +1,5 @@
+import '~/styles/globals.css'
+
 const btn = document.getElementById("btn")!;
 const status = document.getElementById("status")!;
 btn.addEventListener("click", async () => {

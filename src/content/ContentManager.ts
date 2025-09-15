@@ -8,7 +8,7 @@
  * - Handles text selection and snippet capture
  */
 
-import { content as messagingContent, saveSnippet } from '../lib/messaging';
+import { content as messagingContent } from '../lib/messaging';
 import type { PlatformAdapter } from '../adapters/index';
 import {
   getCurrentAdapter,
@@ -20,10 +20,9 @@ import {
   waitForContentLoad
 } from '../adapters/index';
 
-import { shadowRenderer } from './ShadowRenderer';
 import { CaptureButtonRenderer, type CaptureHandler } from './components/CaptureButtonRenderer';
 import { StyleInjector } from './components/StyleInjector';
-import { ShadowDOMRenderer } from './components/ShadowDOMRenderer';
+import { ShadowDOMRenderer } from './renderers/ShadowDOMRenderer';
 
 export interface MessageData {
   text: string;
@@ -414,23 +413,18 @@ export class ContentManager {
   private createCaptureHandler(messageElement: Element): CaptureHandler {
     return async (_event: Event) => {
       const captureData = (messageElement as any).__contextusCaptureData;
-      if (!captureData) {
-        console.warn('[Contexus] No capture data found for message');
-        return;
-      }
-
       try {
-        const response = await saveSnippet({
-          content: captureData.text,
-          sourceUrl: window.location.href,
-          title: `${captureData.isUser ? 'User' : 'AI'} message from ${document.title}`,
-          tags: [captureData.platform, captureData.isUser ? 'user' : 'assistant', 'captured'],
-          platform: captureData.platform,
+        await messagingContent.capture({
+          source: 'auto',
+          fallbackText: captureData?.text,
+          title: `${captureData?.isUser ? 'User' : 'AI'} message from ${document.title}`,
+          tags: captureData
+            ? [captureData.platform, captureData.isUser ? 'user' : 'assistant', 'captured']
+            : ['captured'],
+          meta: captureData
+            ? { isUser: captureData.isUser, platform: captureData.platform, url: window.location.href }
+            : { url: window.location.href },
         });
-
-        if (!response?.success) {
-          throw new Error('Save operation failed');
-        }
       } catch (err) {
         console.warn('[Contexus] Capture failed:', err);
         throw err; // Re-throw for CaptureButtonRenderer to handle
@@ -637,7 +631,7 @@ export class ContentManager {
     }
 
     // Clean up Shadow DOM instances
-    shadowRenderer.cleanup();
+    ShadowDOMRenderer.cleanupAll();
 
     // Reset state
     this.isInitialized = false;
@@ -681,7 +675,8 @@ export class ContentManager {
     if (!messageElement) {
       // Try to capture selected text
       try {
-        await messagingContent.captureSelection({
+        await messagingContent.capture({
+          source: 'selection',
           title: `Captured from ${this.adapter.name}`,
           tags: [this.adapter.platform, 'quick-capture']
         });
@@ -695,12 +690,11 @@ export class ContentManager {
     const messageData = (messageElement as any).__contextusCaptureData;
     if (messageData) {
       try {
-        await saveSnippet({
-          content: messageData.text,
-          sourceUrl: messageData.url,
+        await messagingContent.capture({
+          text: messageData.text,
           title: `${messageData.isUser ? 'User' : 'AI'} message from ${this.adapter.name}`,
           tags: [this.adapter.platform, messageData.isUser ? 'user' : 'assistant'],
-          platform: this.adapter.platform
+          meta: { platform: this.adapter.platform, url: messageData.url, isUser: messageData.isUser },
         });
       } catch {
         // Silent failure for quick capture
@@ -716,7 +710,7 @@ export class ContentManager {
       this.observer.disconnect();
       this.observer = null;
     }
-    shadowRenderer.cleanup();
+    ShadowDOMRenderer.cleanupAll();
     StyleInjector.cleanup();
     CaptureButtonRenderer.clearCaches();
     ShadowDOMRenderer.cleanupAll();

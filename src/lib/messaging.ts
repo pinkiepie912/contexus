@@ -18,26 +18,65 @@ import type {
 /**
  * Base message sending function with error handling
  */
-async function sendMessage<T = any>(message: ChromeMessage): Promise<T> {
-  return new Promise((resolve, reject) => {
-    chrome.runtime.sendMessage(message, (response) => {
-      if (chrome.runtime.lastError) {
-        reject(new Error(chrome.runtime.lastError.message));
-        return;
-      }
+async function sendMessage<T = any>(
+  message: ChromeMessage,
+  options?: { timeoutMs?: number; retries?: number; retryDelayMs?: number }
+): Promise<T> {
+  const timeoutMs = options?.timeoutMs ?? 10000;
+  const retries = options?.retries ?? 1;
+  const retryDelayMs = options?.retryDelayMs ?? 200;
 
-      if (response?.error) {
-        reject(new Error(response.error));
-        return;
-      }
+  let lastError: any = null;
 
-      resolve(response);
-    });
-  });
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const result = await new Promise<T>((resolve, reject) => {
+        let settled = false;
+        const timer = setTimeout(() => {
+          if (settled) return;
+          settled = true;
+          reject(new Error('Messaging timeout'));
+        }, timeoutMs);
+      
+        chrome.runtime.sendMessage(message, (response) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+
+          if (chrome.runtime.lastError) {
+            reject(new Error(chrome.runtime.lastError.message));
+            return;
+          }
+
+          if (response?.error) {
+            reject(new Error(response.error));
+            return;
+          }
+
+          resolve(response as T);
+        });
+      });
+      return result;
+    } catch (err) {
+      lastError = err;
+      if (attempt < retries) {
+        await new Promise(r => setTimeout(r, retryDelayMs));
+        continue;
+      }
+      throw lastError;
+    }
+  }
+
+  // Unreachable
+  throw lastError ?? new Error('Unknown messaging error');
 }
 
 /**
  * Save a snippet to the database
+ */
+/**
+ * Save a snippet to the database
+ * Note: Prefer using `content.capture(...)` which wraps metadata and selection logic.
  */
 export async function saveSnippet(payload: SaveSnippetPayload): Promise<{
   success: boolean;
@@ -45,10 +84,7 @@ export async function saveSnippet(payload: SaveSnippetPayload): Promise<{
   message?: string;
   error?: string;
 }> {
-  return sendMessage({
-    type: 'SAVE_SNIPPET',
-    payload
-  });
+  return sendMessage({ type: 'SAVE_SNIPPET', payload });
 }
 
 /**
@@ -207,49 +243,79 @@ export const batch = {
 /**
  * Utility functions for content scripts
  */
-export const content = {
-  /**
-   * Capture selected text and save as snippet
-   */
-  async captureSelection(options?: {
-    title?: string;
-    tags?: string[];
-  }): Promise<{ success: boolean; snippetId?: string; error?: string }> {
-    const selection = window.getSelection();
-    const selectedText = selection?.toString().trim();
+/**
+ * Get context about current page for snippet metadata
+ */
+export function getPageContext(): {
+  url: string;
+  title: string;
+  platform: 'openai' | 'gemini' | 'claude' | 'other';
+} {
+  const url = window.location.href;
+  let platform: 'openai' | 'gemini' | 'claude' | 'other' = 'other';
 
-    if (!selectedText) {
-      throw new Error('No text selected');
+  if (url.includes('chat.openai.com') || url.includes('chatgpt.com')) platform = 'openai';
+  else if (url.includes('gemini.google.com')) platform = 'gemini';
+  else if (url.includes('claude.ai')) platform = 'claude';
+
+  return { url, title: document.title, platform };
+}
+
+/**
+ * Unified content capture API
+ * - Accepts direct text, or uses selection, or auto-fallback to text when no selection
+ */
+export async function capture(params: {
+  text?: string;
+  source?: 'selection' | 'auto';
+  fallbackText?: string;
+  title?: string;
+  tags?: string[];
+  meta?: {
+    isUser?: boolean;
+    platform?: 'openai' | 'gemini' | 'claude' | 'other';
+    url?: string;
+    messageId?: string;
+  };
+}): Promise<{ success: boolean; snippetId?: string; error?: string }> {
+  try {
+    const ctx = getPageContext();
+
+    let contentText = params.text?.trim();
+    if (!contentText) {
+      if (params.source === 'selection' || params.source === 'auto') {
+        const selection = window.getSelection();
+        const selectedText = selection?.toString().trim();
+        if (selectedText) {
+          contentText = selectedText;
+        } else if (params.source === 'auto') {
+          contentText = params.fallbackText?.trim();
+        }
+      }
     }
 
-    return saveSnippet({
-      content: selectedText,
-      sourceUrl: window.location.href,
-      title: options?.title,
-      tags: options?.tags || [],
-      platform: undefined // Will be auto-detected by background script
-    });
-  },
+    if (!contentText) {
+      return { success: false, error: 'No content to capture' };
+    }
 
-  /**
-   * Get context about current page for snippet metadata
-   */
-  getPageContext(): {
-    url: string;
-    title: string;
-    platform: 'openai' | 'gemini' | 'claude' | 'other';
-  } {
-    const url = window.location.href;
-    let platform: 'openai' | 'gemini' | 'claude' | 'other' = 'other';
-
-    if (url.includes('chat.openai.com')) platform = 'openai';
-    else if (url.includes('gemini.google.com')) platform = 'gemini';
-    else if (url.includes('claude.ai')) platform = 'claude';
-
-    return {
-      url,
-      title: document.title,
-      platform
+    const payload: SaveSnippetPayload = {
+      content: contentText,
+      sourceUrl: params.meta?.url || ctx.url,
+      title: params.title || ctx.title,
+      tags: params.tags || [],
+      platform: params.meta?.platform || ctx.platform,
     };
+  
+    return await saveSnippet(payload);
+  } catch (error: any) {
+    return { success: false, error: error?.message || 'Capture failed' };
   }
+}
+
+/**
+ * Backwards-compatible namespace export
+ */
+export const content = {
+  capture,
+  getPageContext,
 };
