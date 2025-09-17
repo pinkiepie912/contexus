@@ -1,409 +1,257 @@
 /**
- * Background Service Worker for Contexus Chrome Extension
- *
- * This service worker acts as the "Core Brain" of the extension, handling:
- * - Database initialization and seeding with default roles
- * - Snippet saving operations from content scripts
- * - Data query operations for the side panel UI
- * - Message passing between different extension components
+ * Background service worker for the Contexus Chrome Extension.
+ * Updated to support the Element-centric data model introduced in Phase 1.
  */
 
-import { db, dbUtils } from '../lib/db';
+import { db, dbUtils } from "~/lib/db";
 import type {
   ChromeMessage,
-  SaveSnippetPayload,
-  SearchSnippetsPayload,
-  SearchResponse,
-  Snippet,
-  Role
-} from '../types';
+  CreateElementPayload,
+  DeleteBuilderTemplatePayload,
+  DeleteElementPayload,
+  IncrementElementUsagePayload,
+  ListElementsPayload,
+  SaveBuilderTemplatePayload,
+  SearchElementsPayload,
+  UpdateBuilderTemplatePayload,
+  UpdateElementPayload,
+} from "~/types";
+import type { BuilderTemplate, Element, SearchResponse } from "~/types";
 
-/**
- * Extension installation handler
- * Initializes the database and seeds it with default roles
- */
 chrome.runtime.onInstalled.addListener(async (details) => {
-  console.log('[Contexus SW] Extension installed/updated:', details.reason);
+  console.log("[Contexus SW] Extension installed/updated:", details.reason);
 
   try {
-    // Initialize database - this will trigger seeding if it's the first time
     await db.open();
-
-    // Get initial statistics
     const stats = await db.getStats();
-    console.log('[Contexus SW] Database initialized with stats:', stats);
+    console.log("[Contexus SW] Database ready:", stats);
 
-    // Set up initial extension state if needed
-    if (details.reason === 'install') {
-      console.log('[Contexus SW] First-time installation completed');
-
-      // Optionally show welcome notification or setup
+    if (details.reason === "install") {
       chrome.notifications?.create({
-        type: 'basic',
-        iconUrl: '/icons/icon48.png',
-        title: 'Contexus Extension Installed',
-        message: 'Ready to capture and organize your LLM conversations!'
+        type: "basic",
+        iconUrl: "/icons/icon48.png",
+        title: "Contexus Extension Installed",
+        message: "Prompt Studio is ready to use.",
       });
     }
-
   } catch (error) {
-    console.error('[Contexus SW] Database initialization failed:', error);
+    console.error("[Contexus SW] Database initialization failed:", error);
   }
 });
 
-/**
- * Message handler for inter-component communication
- * Handles messages from content scripts, side panel, and popup
- */
 chrome.runtime.onMessage.addListener((
   message: ChromeMessage,
-  sender: chrome.runtime.MessageSender,
-  sendResponse: (response?: any) => void
+  _sender: chrome.runtime.MessageSender,
+  sendResponse: (response?: unknown) => void,
 ) => {
-  console.log('[Contexus SW] Received message:', message.type, 'from:', sender.tab?.url);
+  console.log("[Contexus SW] Received message:", message.type);
 
-  // Handle different message types
   switch (message.type) {
-    case 'SAVE_SNIPPET':
-      handleSaveSnippet(message.payload as SaveSnippetPayload, sender, sendResponse);
-      return true; // Keep message channel open for async response
-
-    case 'SEARCH_SNIPPETS':
-      handleSearchSnippets(message.payload as SearchSnippetsPayload, sendResponse);
-      return true; // Keep message channel open for async response
-
-    case 'GET_ALL_ROLES':
-      handleGetAllRoles(sendResponse);
-      return true; // Keep message channel open for async response
-
-    case 'GET_SNIPPET_BY_ID':
-      handleGetSnippetById(message.payload as string, sendResponse);
-      return true; // Keep message channel open for async response
-
-    case 'UPDATE_SNIPPET':
-      handleUpdateSnippet(message.payload, sendResponse);
-      return true; // Keep message channel open for async response
-
-    case 'DELETE_SNIPPET':
-      handleDeleteSnippet(message.payload as string, sendResponse);
-      return true; // Keep message channel open for async response
-
-    case 'CREATE_ROLE':
-      handleCreateRole(message.payload, sendResponse);
-      return true; // Keep message channel open for async response
-
-    case 'UPDATE_ROLE':
-      handleUpdateRole(message.payload, sendResponse);
-      return true; // Keep message channel open for async response
-
-    case 'DELETE_ROLE':
-      handleDeleteRole(message.payload as string, sendResponse);
-      return true; // Keep message channel open for async response
-
-    // Legacy ping handler for testing
+    case "CREATE_ELEMENT":
+      handleCreateElement(message.payload as CreateElementPayload, sendResponse);
+      return true;
+    case "UPDATE_ELEMENT":
+      handleUpdateElement(message.payload as UpdateElementPayload, sendResponse);
+      return true;
+    case "DELETE_ELEMENT":
+      handleDeleteElement(message.payload as DeleteElementPayload, sendResponse);
+      return true;
+    case "GET_ELEMENT_BY_ID":
+      handleGetElementById(message.payload as { id: string }, sendResponse);
+      return true;
+    case "SEARCH_ELEMENTS":
+      handleSearchElements(message.payload as SearchElementsPayload | undefined, sendResponse);
+      return true;
+    case "LIST_ELEMENTS":
+      handleListElements(message.payload as ListElementsPayload | undefined, sendResponse);
+      return true;
+    case "SAVE_BUILDER_TEMPLATE":
+      handleSaveBuilderTemplate(message.payload as SaveBuilderTemplatePayload, sendResponse);
+      return true;
+    case "UPDATE_BUILDER_TEMPLATE":
+      handleUpdateBuilderTemplate(message.payload as UpdateBuilderTemplatePayload, sendResponse);
+      return true;
+    case "DELETE_BUILDER_TEMPLATE":
+      handleDeleteBuilderTemplate(message.payload as DeleteBuilderTemplatePayload, sendResponse);
+      return true;
+    case "LIST_BUILDER_TEMPLATES":
+      handleListBuilderTemplates(sendResponse);
+      return true;
+    case "INCREMENT_ELEMENT_USAGE":
+      handleIncrementElementUsage(message.payload as IncrementElementUsagePayload, sendResponse);
+      return true;
     default:
       if ((message as any)?.ping) {
         sendResponse({ pong: true, at: Date.now() });
         return true;
       }
 
-      console.warn('[Contexus SW] Unknown message type:', message.type);
-      sendResponse({ error: 'Unknown message type' });
+      console.warn("[Contexus SW] Unknown message type:", message.type);
+      sendResponse({ error: "Unknown message type" });
       return false;
   }
 });
 
-/**
- * Handle snippet saving from content scripts
- */
-async function handleSaveSnippet(
-  payload: SaveSnippetPayload,
-  sender: chrome.runtime.MessageSender,
-  sendResponse: (response: any) => void
-) {
+async function handleCreateElement(
+  payload: CreateElementPayload,
+  sendResponse: (response: Element | { error: string }) => void,
+): Promise<void> {
   try {
-    console.log('[Contexus SW] Saving snippet:', payload.title || 'Untitled');
-
-    // Extract platform from URL if not provided
-    let platform = payload.platform;
-    if (!platform && sender.tab?.url) {
-      platform = detectPlatformFromUrl(sender.tab.url);
-    }
-
-    // Create snippet object
-    const snippet: Omit<Snippet, 'id'> = {
-      content: payload.content,
-      sourceUrl: payload.sourceUrl || sender.tab?.url || '',
-      title: payload.title || 'Untitled',
-      tags: payload.tags || [],
-      platform: platform || 'other',
-      createdAt: new Date(),
-      updatedAt: new Date()
-    };
-
-    // Save to database
-    const savedId = await db.snippets.add(snippet);
-
-    console.log('[Contexus SW] Snippet saved with ID:', savedId);
-
-    sendResponse({
-      success: true,
-      snippetId: savedId,
-      message: 'Snippet saved successfully'
-    });
-
+    const element = await dbUtils.createElement(payload.element);
+    sendResponse(element);
   } catch (error) {
-    console.error('[Contexus SW] Error saving snippet:', error);
+    console.error("[Contexus SW] Error creating element:", error);
+    sendResponse({ error: error instanceof Error ? error.message : "Failed to create element" });
+  }
+}
+
+async function handleUpdateElement(
+  payload: UpdateElementPayload,
+  sendResponse: (response: Element | undefined | { error: string }) => void,
+): Promise<void> {
+  try {
+    const element = await dbUtils.updateElement(payload);
+    sendResponse(element);
+  } catch (error) {
+    console.error("[Contexus SW] Error updating element:", error);
+    sendResponse({ error: error instanceof Error ? error.message : "Failed to update element" });
+  }
+}
+
+async function handleDeleteElement(
+  payload: DeleteElementPayload,
+  sendResponse: (response: { success: boolean; error?: string }) => void,
+): Promise<void> {
+  try {
+    await dbUtils.deleteElement(payload);
+    sendResponse({ success: true });
+  } catch (error) {
+    console.error("[Contexus SW] Error deleting element:", error);
     sendResponse({
       success: false,
-      error: error instanceof Error ? error.message : 'Unknown error'
+      error: error instanceof Error ? error.message : "Failed to delete element",
     });
   }
 }
 
-/**
- * Handle snippet search requests
- */
-async function handleSearchSnippets(
-  payload: SearchSnippetsPayload,
-  sendResponse: (response: SearchResponse<Snippet>) => void
-) {
+async function handleGetElementById(
+  payload: { id: string },
+  sendResponse: (response: Element | undefined) => void,
+): Promise<void> {
   try {
-    console.log('[Contexus SW] Searching snippets:', payload.query);
-
-    const results = await dbUtils.searchSnippets(payload.query, {
-      limit: payload.limit || 20,
-      offset: payload.offset || 0
-    });
-
-    const total = await db.snippets.count();
-    const hasMore = (payload.offset || 0) + results.length < total;
-
-    sendResponse({
-      results,
-      total,
-      hasMore
-    });
-
+    const element = await dbUtils.getElementById(payload.id);
+    sendResponse(element);
   } catch (error) {
-    console.error('[Contexus SW] Error searching snippets:', error);
-    sendResponse({
-      results: [],
-      total: 0,
-      hasMore: false
-    });
+    console.error("[Contexus SW] Error fetching element:", error);
+    sendResponse(undefined);
   }
 }
 
-/**
- * Handle get all roles requests
- */
-async function handleGetAllRoles(
-  sendResponse: (response: Role[]) => void
-) {
+async function handleSearchElements(
+  payload: SearchElementsPayload | undefined,
+  sendResponse: (response: SearchResponse<Element>) => void,
+): Promise<void> {
   try {
-    console.log('[Contexus SW] Getting all roles');
-
-    const roles = await db.roles.orderBy('name').toArray();
-    sendResponse(roles);
-
+    const result = await dbUtils.searchElements(payload ?? {});
+    sendResponse(result);
   } catch (error) {
-    console.error('[Contexus SW] Error getting roles:', error);
+    console.error("[Contexus SW] Error searching elements:", error);
+    sendResponse({ results: [], total: 0, hasMore: false });
+  }
+}
+
+async function handleListElements(
+  payload: ListElementsPayload | undefined,
+  sendResponse: (response: Element[]) => void,
+): Promise<void> {
+  try {
+    const elements = await dbUtils.listElements(payload ?? {});
+    sendResponse(elements);
+  } catch (error) {
+    console.error("[Contexus SW] Error listing elements:", error);
     sendResponse([]);
   }
 }
 
-/**
- * Handle get snippet by ID requests
- */
-async function handleGetSnippetById(
-  snippetId: string,
-  sendResponse: (response: Snippet | null) => void
-) {
+async function handleSaveBuilderTemplate(
+  payload: SaveBuilderTemplatePayload,
+  sendResponse: (response: BuilderTemplate | { error: string }) => void,
+): Promise<void> {
   try {
-    console.log('[Contexus SW] Getting snippet by ID:', snippetId);
-
-    const snippet = await db.snippets.get(snippetId);
-    sendResponse(snippet || null);
-
+    const template = await dbUtils.saveBuilderTemplate(payload);
+    sendResponse(template);
   } catch (error) {
-    console.error('[Contexus SW] Error getting snippet:', error);
-    sendResponse(null);
+    console.error("[Contexus SW] Error saving builder template:", error);
+    sendResponse({ error: error instanceof Error ? error.message : "Failed to save template" });
   }
 }
 
-/**
- * Handle snippet update requests
- */
-async function handleUpdateSnippet(
-  payload: { id: string; updates: Partial<Snippet> },
-  sendResponse: (response: { success: boolean; error?: string }) => void
-) {
+async function handleUpdateBuilderTemplate(
+  payload: UpdateBuilderTemplatePayload,
+  sendResponse: (response: BuilderTemplate | undefined | { error: string }) => void,
+): Promise<void> {
   try {
-    console.log('[Contexus SW] Updating snippet:', payload.id);
-
-    const updatedCount = await db.snippets.update(payload.id, {
-      ...payload.updates,
-      updatedAt: new Date()
-    });
-
-    sendResponse({
-      success: updatedCount > 0
-    });
-
+    const template = await dbUtils.updateBuilderTemplate(payload);
+    sendResponse(template);
   } catch (error) {
-    console.error('[Contexus SW] Error updating snippet:', error);
-    sendResponse({
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown error'
-    });
+    console.error("[Contexus SW] Error updating builder template:", error);
+    sendResponse({ error: error instanceof Error ? error.message : "Failed to update template" });
   }
 }
 
-/**
- * Handle snippet deletion requests
- */
-async function handleDeleteSnippet(
-  snippetId: string,
-  sendResponse: (response: { success: boolean; error?: string }) => void
-) {
+async function handleDeleteBuilderTemplate(
+  payload: DeleteBuilderTemplatePayload,
+  sendResponse: (response: { success: boolean; error?: string }) => void,
+): Promise<void> {
   try {
-    console.log('[Contexus SW] Deleting snippet:', snippetId);
-
-    await db.snippets.delete(snippetId);
-
+    await dbUtils.deleteBuilderTemplate(payload);
     sendResponse({ success: true });
-
   } catch (error) {
-    console.error('[Contexus SW] Error deleting snippet:', error);
+    console.error("[Contexus SW] Error deleting builder template:", error);
     sendResponse({
       success: false,
-      error: error instanceof Error ? error.message : 'Unknown error'
+      error: error instanceof Error ? error.message : "Failed to delete template",
     });
   }
 }
 
-/**
- * Handle role creation requests
- */
-async function handleCreateRole(
-  payload: Omit<Role, 'id'>,
-  sendResponse: (response: { success: boolean; roleId?: string; error?: string }) => void
-) {
+async function handleListBuilderTemplates(
+  sendResponse: (response: BuilderTemplate[]) => void,
+): Promise<void> {
   try {
-    console.log('[Contexus SW] Creating role:', payload.name);
-
-    const roleId = await db.roles.add({
-      ...payload,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      isSystem: false, // User-created roles are never system roles
-      usageCount: 0
-    });
-
-    sendResponse({
-      success: true,
-      roleId: roleId as string
-    });
-
+    const templates = await dbUtils.listBuilderTemplates();
+    sendResponse(templates);
   } catch (error) {
-    console.error('[Contexus SW] Error creating role:', error);
-    sendResponse({
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown error'
-    });
+    console.error("[Contexus SW] Error listing builder templates:", error);
+    sendResponse([]);
   }
 }
 
-/**
- * Handle role update requests
- */
-async function handleUpdateRole(
-  payload: { id: string; updates: Partial<Role> },
-  sendResponse: (response: { success: boolean; error?: string }) => void
-) {
+async function handleIncrementElementUsage(
+  payload: IncrementElementUsagePayload,
+  sendResponse: (response: { success: boolean; error?: string }) => void,
+): Promise<void> {
   try {
-    console.log('[Contexus SW] Updating role:', payload.id);
-
-    const updatedCount = await db.roles.update(payload.id, {
-      ...payload.updates,
-      updatedAt: new Date()
-    });
-
-    sendResponse({
-      success: updatedCount > 0
-    });
-
-  } catch (error) {
-    console.error('[Contexus SW] Error updating role:', error);
-    sendResponse({
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown error'
-    });
-  }
-}
-
-/**
- * Handle role deletion requests
- */
-async function handleDeleteRole(
-  roleId: string,
-  sendResponse: (response: { success: boolean; error?: string }) => void
-) {
-  try {
-    console.log('[Contexus SW] Deleting role:', roleId);
-
-    // Check if it's a system role (should not be deleted)
-    const role = await db.roles.get(roleId);
-    if (role?.isSystem) {
-      sendResponse({
-        success: false,
-        error: 'Cannot delete system roles'
-      });
-      return;
-    }
-
-    await db.roles.delete(roleId);
-
+    await dbUtils.incrementElementUsage(payload);
     sendResponse({ success: true });
-
   } catch (error) {
-    console.error('[Contexus SW] Error deleting role:', error);
+    console.error("[Contexus SW] Error incrementing usage:", error);
     sendResponse({
       success: false,
-      error: error instanceof Error ? error.message : 'Unknown error'
+      error: error instanceof Error ? error.message : "Failed to increment usage",
     });
   }
 }
 
-/**
- * Utility function to detect platform from URL
- */
-function detectPlatformFromUrl(url: string): Snippet['platform'] {
-  if (url.includes('chat.openai.com')) return 'openai';
-  if (url.includes('gemini.google.com')) return 'gemini';
-  if (url.includes('claude.ai')) return 'claude';
-  return 'other';
-}
-
-/**
- * Handle extension startup
- */
 chrome.runtime.onStartup.addListener(async () => {
-  console.log('[Contexus SW] Extension startup');
-
   try {
-    // Ensure database is available
     await db.open();
-    console.log('[Contexus SW] Database ready');
+    console.log("[Contexus SW] Database ready on startup");
   } catch (error) {
-    console.error('[Contexus SW] Database startup error:', error);
+    console.error("[Contexus SW] Database startup error:", error);
   }
 });
 
-/**
- * Handle service worker suspension preparation
- */
-self.addEventListener('beforeunload', () => {
-  console.log('[Contexus SW] Service worker suspending');
+self.addEventListener("beforeunload", () => {
+  console.log("[Contexus SW] Service worker suspending");
 });

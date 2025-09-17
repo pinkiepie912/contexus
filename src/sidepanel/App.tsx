@@ -1,234 +1,170 @@
-import React, { useState } from 'react'
+import { useMemo } from "react";
+import { Loader2Icon, SparklesIcon } from "lucide-react";
 
-import { Button } from '~/components/ui/button'
-import { Input } from '~/components/ui/input'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '~/components/ui/card'
-import { ScrollArea } from '~/components/ui/scroll-area'
-import { Select } from '~/components/ui/select'
-import { useToast } from '~/components/ui/toast'
-import { useSnippets } from '~/hooks/useSnippets'
-import type { Snippet, Role } from '~/types'
+import { Badge } from "~/components/ui/badge";
+import { Button } from "~/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
+import { ScrollArea } from "~/components/ui/scroll-area";
+import { Separator } from "~/components/ui/separator";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/components/ui/tabs";
+import { useElements } from "~/hooks/useElements";
+import type { Element } from "~/types";
 
-/**
- * Snippet Card Component
- * Displays individual snippet with role selection and copy functionality
- */
-function SnippetCard({
-  snippet,
-  roles,
-  onCopyPrompt
-}: {
-  snippet: Snippet
-  roles: Role[]
-  onCopyPrompt: (snippet: Snippet, role: Role | null) => void
-}) {
-  const [selectedRoleId, setSelectedRoleId] = useState<string>('')
-
-  const handleCopyPrompt = () => {
-    const selectedRole = selectedRoleId ? roles.find(r => r.id === selectedRoleId) || null : null
-    onCopyPrompt(snippet, selectedRole)
-  }
-
-  const formatDate = (date: Date) => {
-    return new Intl.DateTimeFormat('ko-KR', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    }).format(new Date(date))
-  }
-
-  const getPlatformBadgeColor = (platform: string | undefined) => {
-    switch (platform) {
-      case 'openai': return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-      case 'gemini': return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
-      case 'claude': return 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200'
-      default: return 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200'
-    }
-  }
-
-  return (
-    <Card className="mb-4 hover:shadow-md transition-shadow">
-      <CardHeader className="pb-3">
-        <div className="flex items-start justify-between">
-          <div className="flex-1 min-w-0">
-            <CardTitle className="text-sm font-medium line-clamp-2">
-              {snippet.title || 'Untitled Snippet'}
-            </CardTitle>
-            <div className="flex items-center gap-2 mt-1">
-              <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                getPlatformBadgeColor(snippet.platform)
-              }`}>
-                {(snippet.platform || 'unknown').toUpperCase()}
-              </span>
-              <span className="text-xs text-muted-foreground">
-                {formatDate(snippet.createdAt)}
-              </span>
-            </div>
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent className="pt-0">
-        <CardDescription className="line-clamp-3 text-xs mb-3">
-          {snippet.content}
-        </CardDescription>
-
-        {/* Tags */}
-        {snippet.tags && snippet.tags.length > 0 && (
-          <div className="flex flex-wrap gap-1 mb-3">
-            {snippet.tags.map((tag, index) => (
-              <span
-                key={index}
-                className="inline-flex items-center px-2 py-1 rounded-md text-xs bg-secondary text-secondary-foreground"
-              >
-                {tag}
-              </span>
-            ))}
-          </div>
-        )}
-
-        {/* Role Selection and Copy */}
-        <div className="space-y-2">
-          <Select
-            value={selectedRoleId}
-            onChange={(e) => setSelectedRoleId(e.target.value)}
-            className="text-xs"
-          >
-            <option value="">Select a role (optional)</option>
-            {roles.map(role => (
-              <option key={role.id} value={role.id}>
-                {role.name} - {role.category}
-              </option>
-            ))}
-          </Select>
-
-          <div className="flex gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              className="flex-1 text-xs"
-              onClick={handleCopyPrompt}
-            >
-              Copy Prompt
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="text-xs"
-              onClick={() => navigator.clipboard.writeText(snippet.content)}
-            >
-              Copy Text
-            </Button>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
-
-/**
- * Main Side Panel Application
- * Implements Feature 5 from PRD: Side Panel UI development
- */
 function App() {
-  const { snippets, roles, loading, searchQuery, setSearchQuery } = useSnippets()
-  const { showToast } = useToast()
+  const { elements, orderedIds, templates, loading, error, total, hasMore, refreshTemplates } =
+    useElements();
 
-  /**
-   * Handle copying prompt with role application
-   * Implements Task 5.3: Role application and prompt generation/copy
-   */
-  const handleCopyPrompt = async (snippet: Snippet, role: Role | null) => {
-    try {
-      let finalPrompt = snippet.content
+  const orderedElements = useMemo(
+    () =>
+      orderedIds
+        .map((id) => elements[id])
+        .filter((element): element is Element => Boolean(element)),
+    [elements, orderedIds],
+  );
 
-      if (role) {
-        // Apply role template to snippet content
-        finalPrompt = `${role.promptTemplate}\n\nContext: ${snippet.content}`
-      }
+  return (
+    <div className="bg-background text-foreground flex min-h-screen flex-col">
+      <header className="border-b p-4">
+        <div className="flex items-start justify-between gap-4">
+          <div className="space-y-1">
+            <h1 className="text-2xl font-semibold">Prompt Studio</h1>
+            <p className="text-muted-foreground text-sm">
+              Phase 1 complete — unified Element model, builder stores, and database migration are ready.
+            </p>
+          </div>
+          <Badge variant="secondary" className="uppercase tracking-wide">
+            Phase 1
+          </Badge>
+        </div>
+      </header>
 
-      await navigator.clipboard.writeText(finalPrompt)
+      <main className="flex-1 overflow-hidden p-4">
+        <div className="grid gap-4 lg:grid-cols-[360px_1fr]">
+          <Card className="h-full">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <SparklesIcon className="size-4" />
+                Builder Templates
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="text-sm text-muted-foreground">
+                Templates are cached for quick access. Refresh after editing elements to keep the list up to date.
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  void refreshTemplates();
+                }}
+                disabled={loading}
+              >
+                Refresh templates
+              </Button>
+              <Separator />
+              <ScrollArea className="h-[260px] pr-2">
+                <div className="space-y-3">
+                  {templates.length === 0 && (
+                    <p className="text-sm text-muted-foreground">
+                      아직 템플릿이 없습니다. 새로운 템플릿 Element를 추가해보세요.
+                    </p>
+                  )}
+                  {templates.map((template) => (
+                    <div key={template.id} className="space-y-1 rounded-md border p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm font-medium">{template.title}</span>
+                        <Badge variant="outline">{template.trigger}</Badge>
+                      </div>
+                      <p className="text-xs text-muted-foreground line-clamp-3">{template.description ?? template.content}</p>
+                      {template.requiredSlots && template.requiredSlots.length > 0 && (
+                        <div className="flex flex-wrap gap-1 pt-2">
+                          {template.requiredSlots.map((slot) => (
+                            <Badge key={slot.id} variant={slot.required ? "default" : "secondary"}>
+                              {slot.name}
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </ScrollArea>
+            </CardContent>
+          </Card>
 
-      // Show success feedback (Task 5.4)
-      const message = role
-        ? `Prompt copied with "${role.name}" role applied!`
-        : 'Snippet content copied to clipboard!'
-      showToast(message, 'success')
+          <Card className="h-full">
+            <CardHeader>
+              <CardTitle className="text-base">Element Inventory</CardTitle>
+            </CardHeader>
+            <CardContent className="flex h-full flex-col">
+              {loading ? (
+                <div className="flex flex-1 items-center justify-center gap-2 text-muted-foreground">
+                  <Loader2Icon className="size-4 animate-spin" />
+                  데이터를 불러오는 중입니다...
+                </div>
+              ) : error ? (
+                <div className="flex flex-1 items-center justify-center text-sm text-destructive">
+                  {error}
+                </div>
+              ) : (
+                <Tabs defaultValue="all" className="flex h-full flex-col">
+                  <TabsList>
+                    <TabsTrigger value="all">전체 ({total})</TabsTrigger>
+                    <TabsTrigger value="templates">템플릿 ({templates.length})</TabsTrigger>
+                  </TabsList>
+                  <TabsContent value="all" className="flex-1">
+                    <InventoryList elements={orderedElements} hasMore={hasMore} />
+                  </TabsContent>
+                  <TabsContent value="templates" className="flex-1">
+                    <InventoryList elements={templates} hasMore={false} />
+                  </TabsContent>
+                </Tabs>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </main>
+    </div>
+  );
+}
 
-    } catch (error) {
-      console.error('Failed to copy prompt:', error)
-      showToast('Failed to copy to clipboard', 'error')
-    }
+interface InventoryListProps {
+  elements: Element[];
+  hasMore: boolean;
+}
+
+function InventoryList({ elements, hasMore }: InventoryListProps) {
+  if (elements.length === 0) {
+    return (
+      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+        등록된 Element가 아직 없습니다.
+      </div>
+    );
   }
 
   return (
-    <div className="flex flex-col h-screen bg-background">
-      {/* Header */}
-      <div className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="p-4">
-          <div className="flex items-center justify-between mb-4">
-            <h1 className="text-lg font-semibold tracking-tight">Contexus</h1>
-            <div className="text-xs text-muted-foreground">
-              {snippets.length} snippets
-            </div>
-          </div>
-
-          {/* Search Input - Task 5.2: Real-time search */}
-          <Input
-            type="search"
-            placeholder="Search snippets..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full"
-          />
-        </div>
-      </div>
-
-      {/* Snippets List */}
-      <ScrollArea className="flex-1">
-        <div className="p-4">
-          {loading ? (
-            <div className="flex items-center justify-center py-8">
-              <div className="text-sm text-muted-foreground">Loading snippets...</div>
-            </div>
-          ) : snippets.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12 text-center">
-              <div className="text-sm font-medium text-muted-foreground mb-1">
-                {searchQuery ? 'No snippets found' : 'No snippets yet'}
+    <ScrollArea className="h-[420px] pr-3">
+      <div className="space-y-3">
+        {elements.map((element) => (
+          <div key={element.id} className="rounded-md border p-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="outline">{element.type}</Badge>
+                <span className="text-sm font-medium">{element.title}</span>
               </div>
-              <div className="text-xs text-muted-foreground">
-                {searchQuery
-                  ? 'Try a different search term'
-                  : 'Start capturing snippets from your LLM conversations'
-                }
-              </div>
+              <Badge variant="secondary">{element.trigger}</Badge>
             </div>
-          ) : (
-            <div className="space-y-0">
-              {snippets.map(snippet => (
-                <SnippetCard
-                  key={snippet.id}
-                  snippet={snippet}
-                  roles={roles}
-                  onCopyPrompt={handleCopyPrompt}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      </ScrollArea>
-
-      {/* Footer */}
-      <div className="border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="p-4">
-          <div className="text-xs text-muted-foreground text-center">
-            {roles.length} roles available • Data stored locally
+            <p className="text-xs text-muted-foreground pt-2 line-clamp-3">{element.description ?? element.content}</p>
           </div>
-        </div>
+        ))}
       </div>
-    </div>
-  )
+      {hasMore && (
+        <div className="pt-3 text-center text-xs text-muted-foreground">
+          추가 Element가 더 있습니다. 검색 조건을 조정해보세요.
+        </div>
+      )}
+    </ScrollArea>
+  );
 }
 
-export default App
+export default App;

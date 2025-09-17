@@ -282,19 +282,14 @@ interface SlotProps {
 ### Phase 1: 데이터 모델 및 기반 구조 (3-4일)
 
 #### Step 1.1: shadcn/ui 컴포넌트 추가
-- **작업**: 필요한 shadcn/ui 컴포넌트 설치
-- **명령어**:
-  ```bash
-  # 추가 필요한 컴포넌트들
-  npx shadcn@latest add badge
-  npx shadcn@latest add tabs
-  npx shadcn@latest add separator
-  npx shadcn@latest add label
-  npx shadcn@latest add dropdown-menu
-  npx shadcn@latest add popover
-  npx shadcn@latest add command
-  npx shadcn@latest add dialog
-  ```
+  badge
+  tabs
+  separator
+  label
+  dropdown-menu
+  popover
+  command
+  dialog
 
 #### Step 1.2: 타입 정의 확장
 - **파일**: `src/types.ts`

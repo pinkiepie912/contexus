@@ -1,44 +1,56 @@
 /**
- * Messaging utility for Chrome Extension communication
- *
- * This module provides typed messaging functions for communication between
- * different parts of the extension (content scripts, side panel, popup, background).
- * All functions return promises and handle errors gracefully.
+ * Messaging utilities for communicating with the background service worker.
+ * Updated for the Element-centric data model introduced in Phase 1.
  */
 
 import type {
   ChromeMessage,
-  SaveSnippetPayload,
-  SearchSnippetsPayload,
-  SearchResponse,
-  Snippet,
-  Role
-} from '../types';
+  CreateElementPayload,
+  DeleteBuilderTemplatePayload,
+  DeleteElementPayload,
+  IncrementElementUsagePayload,
+  ListElementsPayload,
+  NewBuilderTemplateInput,
+  NewElementInput,
+  SaveBuilderTemplatePayload,
+  SearchElementsPayload,
+  UpdateBuilderTemplatePayload,
+  UpdateElementPayload,
+} from "~/types";
+import type { BuilderTemplate, Element, SearchResponse } from "~/types";
 
-/**
- * Base message sending function with error handling
- */
-async function sendMessage<T = any>(
-  message: ChromeMessage,
-  options?: { timeoutMs?: number; retries?: number; retryDelayMs?: number }
-): Promise<T> {
-  const timeoutMs = options?.timeoutMs ?? 10000;
+interface SendMessageOptions {
+  timeoutMs?: number;
+  retries?: number;
+  retryDelayMs?: number;
+}
+
+async function sendMessage<TResponse, TPayload = undefined>(
+  type: ChromeMessage<TPayload>["type"],
+  payload?: TPayload,
+  options?: SendMessageOptions,
+): Promise<TResponse> {
+  const timeoutMs = options?.timeoutMs ?? 10_000;
   const retries = options?.retries ?? 1;
   const retryDelayMs = options?.retryDelayMs ?? 200;
 
-  let lastError: any = null;
+  let lastError: unknown;
 
-  for (let attempt = 0; attempt <= retries; attempt++) {
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
     try {
-      const result = await new Promise<T>((resolve, reject) => {
+      const response = await new Promise<TResponse>((resolve, reject) => {
         let settled = false;
         const timer = setTimeout(() => {
           if (settled) return;
           settled = true;
-          reject(new Error('Messaging timeout'));
+          reject(new Error("Messaging timeout"));
         }, timeoutMs);
-      
-        chrome.runtime.sendMessage(message, (response) => {
+
+        const message = (payload === undefined
+          ? { type }
+          : { type, payload }) as ChromeMessage<TPayload>;
+
+        chrome.runtime.sendMessage(message, (result) => {
           if (settled) return;
           settled = true;
           clearTimeout(timer);
@@ -48,273 +60,193 @@ async function sendMessage<T = any>(
             return;
           }
 
-          if (response?.error) {
-            reject(new Error(response.error));
+          if ((result as any)?.error) {
+            reject(new Error((result as any).error));
             return;
           }
 
-          resolve(response as T);
+          resolve(result as TResponse);
         });
       });
-      return result;
-    } catch (err) {
-      lastError = err;
+
+      return response;
+    } catch (error) {
+      lastError = error;
       if (attempt < retries) {
-        await new Promise(r => setTimeout(r, retryDelayMs));
+        await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
         continue;
       }
-      throw lastError;
+
+      throw lastError instanceof Error ? lastError : new Error("Unknown messaging error");
     }
   }
 
-  // Unreachable
-  throw lastError ?? new Error('Unknown messaging error');
+  throw lastError instanceof Error ? lastError : new Error("Unknown messaging error");
 }
 
-/**
- * Save a snippet to the database
- */
-/**
- * Save a snippet to the database
- * Note: Prefer using `content.capture(...)` which wraps metadata and selection logic.
- */
-export async function saveSnippet(payload: SaveSnippetPayload): Promise<{
-  success: boolean;
-  snippetId?: string;
-  message?: string;
-  error?: string;
-}> {
-  return sendMessage({ type: 'SAVE_SNIPPET', payload });
+/* -------------------------------------------------------------------------- */
+/* Element CRUD                                                               */
+/* -------------------------------------------------------------------------- */
+
+export async function createElement(input: NewElementInput): Promise<Element> {
+  const payload: CreateElementPayload = { element: input };
+  return sendMessage<Element, CreateElementPayload>("CREATE_ELEMENT", payload);
 }
 
-/**
- * Search snippets with optional filters
- */
-export async function searchSnippets(
-  query: string,
-  options?: {
-    limit?: number;
-    offset?: number;
-  }
-): Promise<SearchResponse<Snippet>> {
-  const payload: SearchSnippetsPayload = {
-    query,
-    limit: options?.limit,
-    offset: options?.offset
-  };
-
-  return sendMessage({
-    type: 'SEARCH_SNIPPETS',
-    payload
-  });
+export async function updateElement(payload: UpdateElementPayload): Promise<Element | undefined> {
+  return sendMessage<Element | undefined, UpdateElementPayload>("UPDATE_ELEMENT", payload);
 }
 
-/**
- * Get all roles from the database
- */
-export async function getAllRoles(): Promise<Role[]> {
-  return sendMessage({
-    type: 'GET_ALL_ROLES'
-  });
+export async function deleteElement(payload: DeleteElementPayload): Promise<{ success: boolean }> {
+  return sendMessage<{ success: boolean }, DeleteElementPayload>("DELETE_ELEMENT", payload);
 }
 
-/**
- * Get a specific snippet by ID
- */
-export async function getSnippetById(snippetId: string): Promise<Snippet | null> {
-  return sendMessage({
-    type: 'GET_SNIPPET_BY_ID',
-    payload: snippetId
-  });
+export async function getElementById(id: string): Promise<Element | undefined> {
+  return sendMessage<Element | undefined, { id: string }>("GET_ELEMENT_BY_ID", { id });
 }
 
-/**
- * Update a snippet
- */
-export async function updateSnippet(
-  id: string,
-  updates: Partial<Snippet>
-): Promise<{ success: boolean; error?: string }> {
-  return sendMessage({
-    type: 'UPDATE_SNIPPET',
-    payload: { id, updates }
-  });
+export async function listElements(filters?: ListElementsPayload): Promise<Element[]> {
+  return sendMessage<Element[], ListElementsPayload | undefined>("LIST_ELEMENTS", filters);
 }
 
-/**
- * Delete a snippet
- */
-export async function deleteSnippet(snippetId: string): Promise<{ success: boolean; error?: string }> {
-  return sendMessage({
-    type: 'DELETE_SNIPPET',
-    payload: snippetId
-  });
+export async function searchElements(
+  filters?: SearchElementsPayload,
+): Promise<SearchResponse<Element>> {
+  return sendMessage<SearchResponse<Element>, SearchElementsPayload | undefined>(
+    "SEARCH_ELEMENTS",
+    filters,
+  );
 }
 
-/**
- * Create a new role
- */
-export async function createRole(
-  role: Omit<Role, 'id' | 'createdAt' | 'updatedAt' | 'isSystem' | 'usageCount'>
-): Promise<{ success: boolean; roleId?: string; error?: string }> {
-  return sendMessage({
-    type: 'CREATE_ROLE',
-    payload: role
-  });
+export async function incrementElementUsage(
+  payload: IncrementElementUsagePayload,
+): Promise<void> {
+  await sendMessage<void, IncrementElementUsagePayload>("INCREMENT_ELEMENT_USAGE", payload);
 }
 
-/**
- * Update a role
- */
-export async function updateRole(
-  id: string,
-  updates: Partial<Role>
-): Promise<{ success: boolean; error?: string }> {
-  return sendMessage({
-    type: 'UPDATE_ROLE',
-    payload: { id, updates }
-  });
+/* -------------------------------------------------------------------------- */
+/* Builder templates                                                          */
+/* -------------------------------------------------------------------------- */
+
+export async function saveBuilderTemplate(
+  template: NewBuilderTemplateInput,
+): Promise<BuilderTemplate> {
+  const payload: SaveBuilderTemplatePayload = { template };
+  return sendMessage<BuilderTemplate, SaveBuilderTemplatePayload>(
+    "SAVE_BUILDER_TEMPLATE",
+    payload,
+  );
 }
 
-/**
- * Delete a role
- */
-export async function deleteRole(roleId: string): Promise<{ success: boolean; error?: string }> {
-  return sendMessage({
-    type: 'DELETE_ROLE',
-    payload: roleId
-  });
+export async function updateBuilderTemplate(
+  payload: UpdateBuilderTemplatePayload,
+): Promise<BuilderTemplate | undefined> {
+  return sendMessage<BuilderTemplate | undefined, UpdateBuilderTemplatePayload>(
+    "UPDATE_BUILDER_TEMPLATE",
+    payload,
+  );
 }
 
-/**
- * Utility function for testing connection to background service worker
- */
-export async function pingBackground(): Promise<{ pong: boolean; at: number }> {
-  return sendMessage({ ping: true } as any);
+export async function deleteBuilderTemplate(
+  payload: DeleteBuilderTemplatePayload,
+): Promise<{ success: boolean }>
+{
+  return sendMessage<{ success: boolean }, DeleteBuilderTemplatePayload>(
+    "DELETE_BUILDER_TEMPLATE",
+    payload,
+  );
 }
 
-/**
- * Batch operations for better performance
- */
-export const batch = {
-  /**
-   * Save multiple snippets at once
-   */
-  async saveSnippets(snippets: SaveSnippetPayload[]): Promise<{
-    success: boolean;
-    results: { snippetId?: string; error?: string }[];
-  }> {
-    const results = await Promise.allSettled(
-      snippets.map(snippet => saveSnippet(snippet))
-    );
+export async function listBuilderTemplates(): Promise<BuilderTemplate[]> {
+  return sendMessage<BuilderTemplate[], undefined>("LIST_BUILDER_TEMPLATES");
+}
 
-    return {
-      success: results.every(result => result.status === 'fulfilled' && result.value.success),
-      results: results.map(result =>
-        result.status === 'fulfilled'
-          ? result.value
-          : { error: result.reason?.message || 'Unknown error' }
-      )
-    };
-  },
+/* -------------------------------------------------------------------------- */
+/* Utilities                                                                  */
+/* -------------------------------------------------------------------------- */
 
-  /**
-   * Delete multiple snippets at once
-   */
-  async deleteSnippets(snippetIds: string[]): Promise<{
-    success: boolean;
-    results: { success: boolean; error?: string }[];
-  }> {
-    const results = await Promise.allSettled(
-      snippetIds.map(id => deleteSnippet(id))
-    );
+type SupportedPlatform = "openai" | "gemini" | "claude" | "other";
 
-    return {
-      success: results.every(result => result.status === 'fulfilled' && result.value.success),
-      results: results.map(result =>
-        result.status === 'fulfilled'
-          ? result.value
-          : { success: false, error: result.reason?.message || 'Unknown error' }
-      )
-    };
-  }
-};
-
-/**
- * Utility functions for content scripts
- */
-/**
- * Get context about current page for snippet metadata
- */
 export function getPageContext(): {
   url: string;
   title: string;
-  platform: 'openai' | 'gemini' | 'claude' | 'other';
+  platform: SupportedPlatform;
 } {
   const url = window.location.href;
-  let platform: 'openai' | 'gemini' | 'claude' | 'other' = 'other';
+  let platform: SupportedPlatform = "other";
 
-  if (url.includes('chat.openai.com') || url.includes('chatgpt.com')) platform = 'openai';
-  else if (url.includes('gemini.google.com')) platform = 'gemini';
-  else if (url.includes('claude.ai')) platform = 'claude';
+  if (url.includes("chat.openai.com") || url.includes("chatgpt.com")) platform = "openai";
+  else if (url.includes("gemini.google.com")) platform = "gemini";
+  else if (url.includes("claude.ai")) platform = "claude";
 
   return { url, title: document.title, platform };
 }
 
-/**
- * Unified content capture API
- * - Accepts direct text, or uses selection, or auto-fallback to text when no selection
- */
 export async function capture(params: {
   text?: string;
-  source?: 'selection' | 'auto';
+  source?: "selection" | "auto";
   fallbackText?: string;
   title?: string;
   tags?: string[];
   meta?: {
-    isUser?: boolean;
-    platform?: 'openai' | 'gemini' | 'claude' | 'other';
+    trigger?: string;
+    platform?: SupportedPlatform;
     url?: string;
-    messageId?: string;
+    isUser?: boolean;
   };
-}): Promise<{ success: boolean; snippetId?: string; error?: string }> {
+}): Promise<{ success: boolean; elementId?: string; error?: string }> {
   try {
     const ctx = getPageContext();
 
     let contentText = params.text?.trim();
     if (!contentText) {
-      if (params.source === 'selection' || params.source === 'auto') {
+      if (params.source === "selection" || params.source === "auto") {
         const selection = window.getSelection();
         const selectedText = selection?.toString().trim();
         if (selectedText) {
           contentText = selectedText;
-        } else if (params.source === 'auto') {
+        } else if (params.source === "auto") {
           contentText = params.fallbackText?.trim();
         }
       }
     }
 
     if (!contentText) {
-      return { success: false, error: 'No content to capture' };
+      return { success: false, error: "No content to capture" };
     }
 
-    const payload: SaveSnippetPayload = {
+    const element = await createElement({
+      type: "context",
+      trigger: params.meta?.trigger ?? "/captured",
+      title: params.title || ctx.title || "Captured snippet",
       content: contentText,
-      sourceUrl: params.meta?.url || ctx.url,
-      title: params.title || ctx.title,
-      tags: params.tags || [],
-      platform: params.meta?.platform || ctx.platform,
+      description: params.meta?.url ?? ctx.url,
+      tags: params.tags,
+      createdAt: new Date(),
+      usageCount: 0,
+    });
+
+    return { success: true, elementId: element.id };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Capture failed",
     };
-  
-    return await saveSnippet(payload);
-  } catch (error: any) {
-    return { success: false, error: error?.message || 'Capture failed' };
   }
 }
 
-/**
- * Backwards-compatible namespace export
- */
+export async function pingBackground(): Promise<{ pong: boolean; at: number }> {
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage({ ping: true }, (response) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+      resolve(response as { pong: boolean; at: number });
+    });
+  });
+}
+
 export const content = {
   capture,
   getPageContext,

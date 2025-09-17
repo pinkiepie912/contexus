@@ -45,12 +45,6 @@
 2. Type-only imports: use `import type { ... } from '...';` for interfaces/types to improve build performance and clarity.
 3. External deps and framework config: when adding/modifying external libraries or build config, consult official docs via Context7 MCP and follow recommended patterns.
 
-## Testing Guidelines
-- Frameworks: Vitest (unit), Playwright (e2e; deps present, not configured).
-- Location: place unit tests near code (`*.test.ts`/`*.test.tsx`) or under `__tests__/`.
-- Coverage: use `@vitest/coverage-v8`; target ≥80% on new/changed core logic in `lib/`.
-- Example: `pnpm vitest --run --coverage`.
-
 ## Current Implementation Status
 - Extension scaffold complete with optimized MV3 setup.
 - React side panel wired with Tailwind.
