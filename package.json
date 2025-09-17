@@ -14,7 +14,7 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "packageManager": "pnpm@10.16.0",
+  "packageManager": "pnpm@10.16.1",
   "devDependencies": {
     "@crxjs/vite-plugin": "^2.2.0",
     "@eslint/js": "^9.35.0",
