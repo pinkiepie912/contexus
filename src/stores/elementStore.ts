@@ -26,6 +26,7 @@ interface ElementStoreState {
   remove: (id: string) => Promise<void>;
   refreshTemplates: () => Promise<Element[]>;
   getById: (id: string) => Element | undefined;
+  cleanup: () => void;
 }
 
 export const useElementStore = create<ElementStoreState>((set, get) => ({
@@ -126,4 +127,21 @@ export const useElementStore = create<ElementStoreState>((set, get) => ({
     const state = get();
     return state.elements[id];
   },
+
+  cleanup() {
+    // Clear all data to prevent memory leaks
+    set((state) => ({
+      ...state,
+      elements: {},
+      orderedIds: [],
+      templates: [],
+      loading: false,
+      error: null,
+      total: 0,
+      hasMore: false,
+    }));
+
+    console.log('🧹 ElementStore cleaned up');
+  },
+
 }));

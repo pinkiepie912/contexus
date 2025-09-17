@@ -14,7 +14,7 @@ export function useElements(filters?: SearchElementsPayload) {
     error,
     total,
     hasMore,
-    lastQuery,
+    // _lastQuery: lastQuery,
     initialize,
     search,
     refreshTemplates
@@ -40,14 +40,27 @@ export function useElements(filters?: SearchElementsPayload) {
     });
   }, [filtersKey]); // search는 의존성에서 제거
 
+  const searchElements = async (filters: SearchElementsPayload) => {
+    await search(filters);
+    // Return the results from the store after search completes
+    const state = storeState;
+    return {
+      results: state.orderedIds.map(id => state.elements[id]).filter(Boolean),
+      total: state.total,
+      hasMore: state.hasMore,
+    };
+  };
+
   return {
     elements,
     orderedIds,
     templates,
-    loading,
+    loading: loading,
+    isLoading: loading,
     error,
     total,
     hasMore,
     refreshTemplates,
+    searchElements,
   };
 }

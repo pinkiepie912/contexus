@@ -1,5 +1,8 @@
 import React, { useState } from "react";
 import { X, Search } from "lucide-react";
+
+import { InlineSearch } from "./InlineSearch";
+
 import { Card } from "~/components/ui/card";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
@@ -13,7 +16,7 @@ interface SlotComponentProps {
   assignedElement?: Element | undefined;
   onDrop: (element: Element) => void;
   onRemove: () => void;
-  onInlineSearch: () => void;
+  onInlineSearch?: () => void;
 }
 
 const getSlotTypeColor = (type: SlotDefinition['type']): string => {
@@ -55,6 +58,7 @@ export const SlotComponent: React.FC<SlotComponentProps> = ({
 }) => {
   const [textValue, setTextValue] = useState("");
   const [isFocused, setIsFocused] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
 
   // Only accept elements that match the slot type (unless it's 'text' type)
   const acceptedTypes: ElementType[] = slot.type === 'text'
@@ -69,6 +73,8 @@ export const SlotComponent: React.FC<SlotComponentProps> = ({
     handleDragLeave,
     handleDrop,
     dropZoneState,
+    getDragOverClass,
+    getDropZoneClass,
   } = useDragAndDrop({
     acceptedTypes,
     enableVisualFeedback: true,
@@ -82,7 +88,8 @@ export const SlotComponent: React.FC<SlotComponentProps> = ({
     setIsFocused(true);
     // Trigger inline search when user focuses on empty slot
     if (!assignedElement) {
-      onInlineSearch();
+      setSearchOpen(true);
+      onInlineSearch?.();
     }
   };
 
@@ -94,8 +101,18 @@ export const SlotComponent: React.FC<SlotComponentProps> = ({
     // Trigger inline search when user types '/'
     if (e.key === '/' && !assignedElement) {
       e.preventDefault();
-      onInlineSearch();
+      setSearchOpen(true);
+      onInlineSearch?.();
     }
+  };
+
+  const handleElementSelect = (element: Element) => {
+    onDrop(element);
+    setSearchOpen(false);
+  };
+
+  const handleSearchOpen = () => {
+    setSearchOpen(true);
   };
 
   const isDropZoneActive = dropZoneState.isOver;
@@ -151,18 +168,21 @@ export const SlotComponent: React.FC<SlotComponentProps> = ({
       ) : (
         // Empty Slot - Drop Zone
         <div
-          className={`relative border-2 border-dashed rounded-lg p-3 transition-all ${
-            isDropZoneActive
-              ? canAcceptDrop
-                ? "border-primary bg-primary/5"
-                : "border-destructive bg-destructive/5"
-              : "border-muted-foreground/30 hover:border-muted-foreground/50"
-          } ${isFocused ? "ring-2 ring-primary/20" : ""}`}
+          className={`
+            relative border-2 border-dashed rounded-lg p-3 transition-all
+            ${getDropZoneClass()}
+            ${getDragOverClass()}
+            ${!isDropZoneActive
+              ? "border-muted-foreground/30 hover:border-muted-foreground/50"
+              : ""}
+            ${isFocused ? "ring-2 ring-primary/20" : ""}
+          `}
           onDragOver={handleDragOver}
           onDragEnter={handleDragEnter}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop(handleElementDrop)}
         >
+          <div className="drop-zone-placeholder" />
           {slot.type === 'text' ? (
             // Text Input for manual text entry
             <Input
@@ -175,13 +195,28 @@ export const SlotComponent: React.FC<SlotComponentProps> = ({
               className="border-0 bg-transparent shadow-none focus-visible:ring-0 p-0"
             />
           ) : (
-            // Drop zone for elements
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Search className="h-4 w-4" />
-              <span>
-                {slot.placeholder || `${slot.name}을(를) 드래그하거나 '/' 키를 눌러 검색하세요`}
-              </span>
-            </div>
+            // Drop zone for elements with inline search
+            <InlineSearch
+              slotType={slot.type as ElementType | "text"}
+              placeholder={slot.placeholder || `${slot.name} 검색...`}
+              open={searchOpen}
+              onOpenChange={setSearchOpen}
+              onElementSelect={handleElementSelect}
+            >
+              <div
+                className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer w-full"
+                onClick={handleSearchOpen}
+                onFocus={handleInputFocus}
+                onBlur={handleInputBlur}
+                onKeyDown={handleInputKeyDown}
+                tabIndex={0}
+              >
+                <Search className="h-4 w-4" />
+                <span>
+                  {slot.placeholder || `${slot.name}을(를) 드래그하거나 클릭하여 검색하세요`}
+                </span>
+              </div>
+            </InlineSearch>
           )}
 
           {/* Drop zone visual feedback */}

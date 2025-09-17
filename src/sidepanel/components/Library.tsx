@@ -1,18 +1,21 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { Search } from "lucide-react";
+
+import { ElementCard } from "./ElementCard";
+import { FilterTabs } from "./FilterTabs";
+
 import { Card, CardHeader, CardTitle, CardContent } from "~/components/ui/card";
 import { Input } from "~/components/ui/input";
 import { ScrollArea } from "~/components/ui/scroll-area";
-import { ElementCard } from "./ElementCard";
-import { FilterTabs } from "./FilterTabs";
 import { useElements } from "~/hooks/useElements";
 import type { Element, ElementType, SearchElementsPayload } from "~/types";
 
 interface LibraryProps {
   onElementAdd: (element: Element) => void;
+  compact?: boolean;
 }
 
-export const Library: React.FC<LibraryProps> = ({ onElementAdd }) => {
+export const Library: React.FC<LibraryProps> = ({ onElementAdd, compact = false }) => {
   const [searchQuery, setSearchQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState<ElementType | "all">("all");
   const [debouncedQuery, setDebouncedQuery] = useState("");
@@ -101,14 +104,44 @@ export const Library: React.FC<LibraryProps> = ({ onElementAdd }) => {
     }
   };
 
+  const getCompactClasses = () => {
+    if (compact) {
+      return {
+        card: "h-full flex flex-col",
+        header: "pb-2",
+        title: "text-base font-semibold",
+        searchWrapper: "relative",
+        searchIcon: "absolute left-2 top-1/2 transform -translate-y-1/2 h-3 w-3 text-muted-foreground",
+        searchInput: "pl-8 h-8 text-sm",
+        content: "flex-1 p-0",
+        scrollArea: "h-full px-3 pb-3",
+        cardGrid: "space-y-2"
+      };
+    }
+
+    return {
+      card: "h-full flex flex-col",
+      header: "pb-4",
+      title: "text-lg font-semibold",
+      searchWrapper: "relative",
+      searchIcon: "absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground",
+      searchInput: "pl-10",
+      content: "flex-1 p-0",
+      scrollArea: "h-full px-6 pb-6",
+      cardGrid: "space-y-3"
+    };
+  };
+
+  const classes = getCompactClasses();
+
   return (
-    <Card className="h-full flex flex-col">
-      <CardHeader className="pb-4">
-        <CardTitle className="text-lg font-semibold">라이브러리</CardTitle>
+    <Card className={classes.card}>
+      <CardHeader className={classes.header}>
+        <CardTitle className={classes.title}>라이브러리</CardTitle>
 
         {/* Search Input */}
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <div className={classes.searchWrapper}>
+          <Search className={classes.searchIcon} />
           <Input
             ref={searchInputRef}
             type="text"
@@ -116,20 +149,22 @@ export const Library: React.FC<LibraryProps> = ({ onElementAdd }) => {
             value={searchQuery}
             onChange={handleSearchChange}
             onKeyDown={handleKeyDown}
-            className="pl-10"
+            className={classes.searchInput}
           />
         </div>
 
-        {/* Filter Tabs */}
-        <FilterTabs
-          activeFilter={activeFilter}
-          onFilterChange={handleFilterChange}
-          counts={elementCounts}
-        />
+        {/* Filter Tabs - Hide in compact mode */}
+        {!compact && (
+          <FilterTabs
+            activeFilter={activeFilter}
+            onFilterChange={handleFilterChange}
+            counts={elementCounts}
+          />
+        )}
       </CardHeader>
 
-      <CardContent className="flex-1 p-0">
-        <ScrollArea className="h-full px-6 pb-6">
+      <CardContent className={classes.content}>
+        <ScrollArea className={classes.scrollArea}>
           {error && (
             <div className="text-sm text-destructive p-4 text-center">
               오류: {error}
@@ -151,13 +186,14 @@ export const Library: React.FC<LibraryProps> = ({ onElementAdd }) => {
           )}
 
           {!loading && filteredElements.length > 0 && (
-            <div className="space-y-3">
+            <div className={classes.cardGrid}>
               {filteredElements.map((element) => (
                 <ElementCard
                   key={element.id}
                   element={element}
                   onQuickAdd={handleQuickAdd}
                   draggable
+                  compact={compact}
                 />
               ))}
             </div>

@@ -1,44 +1,68 @@
 import React from "react";
 import { Plus } from "lucide-react";
+
+import { TemplateSlot } from "./TemplateSlot";
+import { ActionButtons } from "./ActionButtons";
+
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
 import { Button } from "~/components/ui/button";
 import { Separator } from "~/components/ui/separator";
-import { TemplateSlot } from "./TemplateSlot";
-import { ActionButtons } from "./ActionButtons";
 import { useBuilderStore } from "~/stores/builderStore";
 import { useDragAndDrop } from "~/hooks/useDragAndDrop";
-import { PromptEngine } from "~/lib/promptEngine";
+// import { PromptEngine } from "~/lib/promptEngine";
 import type { Element } from "~/types";
 
 interface BuilderProps {
   onInject: (prompt: string) => void;
   onCopy: (prompt: string) => void;
+  isInjecting?: boolean;
+  compact?: boolean;
 }
 
-const EmptyState: React.FC<{ onAddElement: () => void }> = ({ onAddElement }) => (
-  <div className="flex flex-col items-center justify-center p-8 text-center">
-    <div className="rounded-full bg-muted/50 p-6 mb-4">
-      <Plus className="h-8 w-8 text-muted-foreground" />
-    </div>
-    <h3 className="text-lg font-medium mb-2">빌더가 비어있습니다</h3>
-    <p className="text-sm text-muted-foreground mb-4 max-w-md">
-      라이브러리에서 엘리먼트를 드래그하여 프롬프트를 조립하세요.
-      템플릿을 선택하면 슬롯 시스템이 활성화됩니다.
-    </p>
-    <Button variant="outline" onClick={onAddElement}>
-      <Plus className="h-4 w-4 mr-2" />
-      엘리먼트 추가
-    </Button>
-  </div>
-);
+const EmptyState: React.FC<{ onAddElement: () => void, compact?: boolean }> = ({ onAddElement, compact = false }) => {
+  if (compact) {
+    return (
+      <div className="flex flex-col items-center justify-center p-4 text-center">
+        <div className="rounded-full bg-muted/50 p-3 mb-2">
+          <Plus className="h-4 w-4 text-muted-foreground" />
+        </div>
+        <h3 className="text-sm font-medium mb-1">빠른 조립</h3>
+        <p className="text-xs text-muted-foreground mb-2">
+          엘리먼트를 드래그하세요
+        </p>
+        <Button variant="outline" size="sm" onClick={onAddElement}>
+          <Plus className="h-3 w-3 mr-1" />
+          추가
+        </Button>
+      </div>
+    );
+  }
 
-export const Builder: React.FC<BuilderProps> = ({ onInject, onCopy }) => {
+  return (
+    <div className="flex flex-col items-center justify-center p-8 text-center">
+      <div className="rounded-full bg-muted/50 p-6 mb-4">
+        <Plus className="h-8 w-8 text-muted-foreground" />
+      </div>
+      <h3 className="text-lg font-medium mb-2">빌더가 비어있습니다</h3>
+      <p className="text-sm text-muted-foreground mb-4 max-w-md">
+        라이브러리에서 엘리먼트를 드래그하여 프롬프트를 조립하세요.
+        템플릿을 선택하면 슬롯 시스템이 활성화됩니다.
+      </p>
+      <Button variant="outline" onClick={onAddElement}>
+        <Plus className="h-4 w-4 mr-2" />
+        엘리먼트 추가
+      </Button>
+    </div>
+  );
+};
+
+export const Builder: React.FC<BuilderProps> = ({ onInject, onCopy, isInjecting = false, compact = false }) => {
   const {
     elements,
     selectedTemplate,
     addElement,
     removeElement,
-    buildPreview,
+    // buildPreview,
   } = useBuilderStore();
 
   const {
@@ -61,15 +85,15 @@ export const Builder: React.FC<BuilderProps> = ({ onInject, onCopy }) => {
     console.log("Add element dialog would open here");
   };
 
-  const handleInjectClick = () => {
-    const result = PromptEngine.buildPrompt(elements, selectedTemplate);
-    onInject(result.prompt);
-  };
+  // const handleInjectClick = () => {
+  //   const result = PromptEngine.buildPrompt(elements, selectedTemplate);
+  //   onInject(result.prompt);
+  // };
 
-  const handleCopyClick = () => {
-    const result = PromptEngine.buildPrompt(elements, selectedTemplate);
-    onCopy(result.prompt);
-  };
+  // const handleCopyClick = () => {
+  //   const result = PromptEngine.buildPrompt(elements, selectedTemplate);
+  //   onCopy(result.prompt);
+  // };
 
   const handleInlineSearch = (slotId?: string) => {
     // This would open an inline search dialog
@@ -99,7 +123,7 @@ export const Builder: React.FC<BuilderProps> = ({ onInject, onCopy }) => {
           onDrop={handleDrop(handleElementDrop)}
         >
           {isEmpty ? (
-            <EmptyState onAddElement={handleAddElement} />
+            <EmptyState onAddElement={handleAddElement} compact={compact} />
           ) : (
             <div className="p-6 space-y-6">
               {/* Template-based or simple element display */}
@@ -155,7 +179,7 @@ export const Builder: React.FC<BuilderProps> = ({ onInject, onCopy }) => {
               <Separator />
 
               {/* Action Buttons */}
-              <ActionButtons onInject={onInject} onCopy={onCopy} />
+              <ActionButtons onInject={onInject} onCopy={onCopy} isInjecting={isInjecting} />
             </div>
           )}
         </div>

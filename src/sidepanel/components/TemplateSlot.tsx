@@ -1,10 +1,12 @@
 import React from "react";
 import { X } from "lucide-react";
+
+import { SlotComponent } from "./SlotComponent";
+
 import { Card, CardContent, CardHeader } from "~/components/ui/card";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Separator } from "~/components/ui/separator";
-import { SlotComponent } from "./SlotComponent";
 import { useBuilderStore } from "~/stores/builderStore";
 import type { Element, BuilderElement } from "~/types";
 

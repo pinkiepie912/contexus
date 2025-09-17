@@ -6,6 +6,7 @@
  * - Monitors for new messages using MutationObserver
  * - Renders capture UI buttons inline with messages
  * - Handles text selection and snippet capture
+ * - Injects prompts from PromptStudio into input fields
  */
 
 import { content as messagingContent } from '../lib/messaging';
@@ -45,6 +46,7 @@ export class ContentManager {
   private adapter: PlatformAdapter;
   private processedMessages = new Set<Element>();
   private useShadowDOM = false; // Feature flag for Shadow DOM rendering
+  private currentInputField: HTMLElement | null = null; // Track current input field for prompt injection
 
   constructor() {
     this.adapter = getCurrentAdapter();
@@ -79,6 +81,9 @@ export class ContentManager {
 
     // Handle SPA navigation
     this.setupNavigationListener();
+
+    // Setup message listening for prompt injection from side panel
+    this.setupPromptInjectionListener();
   }
 
   /**
@@ -700,6 +705,272 @@ export class ContentManager {
         // Silent failure for quick capture
       }
     }
+  }
+
+  // === Prompt Injection Methods (Phase 4) ===
+
+  /**
+   * Setup message listener for prompt injection from side panel
+   */
+  private setupPromptInjectionListener(): void {
+    chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+      if (message.type === 'INJECT_PROMPT') {
+        this.injectPrompt(message.payload.prompt)
+          .then(() => sendResponse({ success: true }))
+          .catch((error) => sendResponse({ success: false, error: error.message }));
+        return true; // Keep message channel open for async response
+      }
+    });
+  }
+
+  /**
+   * Inject prompt into the current input field
+   */
+  async injectPrompt(prompt: string): Promise<void> {
+    const inputField = this.detectInputField();
+    if (!inputField) {
+      throw new Error('No input field detected on this page');
+    }
+
+    try {
+      await this.setInputFieldValue(inputField, prompt);
+      console.log('[Contexus] Prompt injected successfully');
+    } catch (error) {
+      console.error('[Contexus] Prompt injection failed:', error);
+      throw new Error(`Failed to inject prompt: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * Detect the current input field based on platform
+   */
+  detectInputField(): HTMLElement | null {
+    // Try to get input field from adapter config
+    if (this.adapter.selectors.inputField) {
+      const inputField = document.querySelector(this.adapter.selectors.inputField) as HTMLElement;
+      if (inputField) {
+        this.currentInputField = inputField;
+        return inputField;
+      }
+    }
+
+    // Fallback: Common input field selectors across platforms
+    const commonSelectors = [
+      // ChatGPT
+      'textarea[data-id="root"]',
+      '#prompt-textarea',
+      'textarea[placeholder*="Message"]',
+
+      // Claude
+      'div[contenteditable="true"][data-testid="message-input"]',
+      'div[contenteditable="true"]',
+
+      // Gemini
+      'div.ql-editor[contenteditable="true"]',
+      'textarea[jsname*="focus"]',
+
+      // Generic fallbacks
+      'textarea:not([disabled]):not([readonly])',
+      'div[contenteditable="true"]:not([readonly])',
+      'input[type="text"]:not([disabled]):not([readonly])'
+    ];
+
+    for (const selector of commonSelectors) {
+      const element = document.querySelector(selector) as HTMLElement;
+      if (element && this.isInputFieldVisible(element)) {
+        this.currentInputField = element;
+        return element;
+      }
+    }
+
+    console.warn('[Contexus] No suitable input field found');
+    return null;
+  }
+
+  /**
+   * Check if input field is visible and usable
+   */
+  private isInputFieldVisible(element: HTMLElement): boolean {
+    if (!element) return false;
+
+    const style = window.getComputedStyle(element);
+    const rect = element.getBoundingClientRect();
+
+    return (
+      style.display !== 'none' &&
+      style.visibility !== 'hidden' &&
+      style.opacity !== '0' &&
+      rect.width > 0 &&
+      rect.height > 0 &&
+      !(element as HTMLInputElement | HTMLTextAreaElement).disabled &&
+      !element.hasAttribute('readonly')
+    );
+  }
+
+  /**
+   * Set value in input field (handles both textarea and contenteditable)
+   */
+  private async setInputFieldValue(inputField: HTMLElement, value: string): Promise<void> {
+    if (!inputField) throw new Error('Input field is null');
+
+    // Focus the input field first
+    inputField.focus();
+
+    // Handle different input field types
+    if (inputField.tagName === 'TEXTAREA' || inputField.tagName === 'INPUT') {
+      const textInput = inputField as HTMLInputElement | HTMLTextAreaElement;
+
+      // Clear existing content
+      textInput.value = '';
+
+      // Set new value
+      textInput.value = value;
+
+      // Trigger input events to ensure the platform detects the change
+      this.triggerInputEvents(textInput);
+
+    } else if (inputField.contentEditable === 'true') {
+      // Handle contenteditable divs (Claude, some Gemini interfaces)
+
+      // Clear existing content
+      inputField.innerText = '';
+
+      // Set new content
+      inputField.innerText = value;
+
+      // Trigger input events
+      this.triggerContentEditableEvents(inputField);
+
+    } else {
+      throw new Error('Unsupported input field type');
+    }
+
+    // Additional platform-specific adjustments
+    await this.platformSpecificInputAdjustments(inputField, value);
+  }
+
+  /**
+   * Trigger input events for textarea/input elements
+   */
+  private triggerInputEvents(element: HTMLInputElement | HTMLTextAreaElement): void {
+    const events = [
+      new Event('input', { bubbles: true }),
+      new Event('change', { bubbles: true }),
+      new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }),
+      new KeyboardEvent('keyup', { key: 'Enter', bubbles: true })
+    ];
+
+    events.forEach(event => element.dispatchEvent(event));
+  }
+
+  /**
+   * Trigger input events for contenteditable elements
+   */
+  private triggerContentEditableEvents(element: HTMLElement): void {
+    const events = [
+      new Event('input', { bubbles: true }),
+      new Event('change', { bubbles: true }),
+      new InputEvent('input', {
+        inputType: 'insertText',
+        data: element.innerText,
+        bubbles: true
+      }),
+      new Event('focus', { bubbles: true }),
+      new Event('blur', { bubbles: true })
+    ];
+
+    events.forEach(event => element.dispatchEvent(event));
+  }
+
+  /**
+   * Apply platform-specific adjustments after setting input value
+   */
+  private async platformSpecificInputAdjustments(inputField: HTMLElement, _value: string): Promise<void> {
+    const platform = this.adapter.platform;
+
+    switch (platform) {
+      case 'openai':
+        // ChatGPT may need additional React state updates
+        await this.triggerReactStateUpdate(inputField);
+        break;
+
+      case 'claude':
+        // Claude may need selection range adjustments
+        this.adjustSelectionRange(inputField);
+        break;
+
+      case 'gemini':
+        // Gemini may need Quill editor updates
+        await this.triggerQuillUpdate(inputField);
+        break;
+
+      default:
+        // Generic adjustments
+        break;
+    }
+  }
+
+  /**
+   * Trigger React state update for ChatGPT
+   */
+  private async triggerReactStateUpdate(inputField: HTMLElement): Promise<void> {
+    try {
+      // Try to trigger React's internal state update
+      const reactKey = Object.keys(inputField).find(key => key.startsWith('__reactInternalInstance'));
+      if (reactKey) {
+        const reactInstance = (inputField as any)[reactKey];
+        if (reactInstance && reactInstance.memoizedProps && reactInstance.memoizedProps.onChange) {
+          reactInstance.memoizedProps.onChange({
+            target: inputField,
+            currentTarget: inputField
+          });
+        }
+      }
+    } catch (error) {
+      console.warn('[Contexus] React state update failed:', error);
+    }
+  }
+
+  /**
+   * Adjust selection range for Claude contenteditable
+   */
+  private adjustSelectionRange(inputField: HTMLElement): void {
+    try {
+      if (inputField.contentEditable === 'true') {
+        const range = document.createRange();
+        const selection = window.getSelection();
+
+        range.selectNodeContents(inputField);
+        range.collapse(false); // Collapse to end
+
+        selection?.removeAllRanges();
+        selection?.addRange(range);
+      }
+    } catch (error) {
+      console.warn('[Contexus] Selection range adjustment failed:', error);
+    }
+  }
+
+  /**
+   * Trigger Quill editor update for Gemini
+   */
+  private async triggerQuillUpdate(inputField: HTMLElement): Promise<void> {
+    try {
+      // Try to trigger Quill's update mechanism
+      const quillEditor = (inputField as any).__quill;
+      if (quillEditor && typeof quillEditor.setText === 'function') {
+        quillEditor.setText(inputField.innerText);
+      }
+    } catch (error) {
+      console.warn('[Contexus] Quill update failed:', error);
+    }
+  }
+
+  /**
+   * Get current input field (for external access)
+   */
+  getCurrentInputField(): HTMLElement | null {
+    return this.currentInputField || this.detectInputField();
   }
 
   /**

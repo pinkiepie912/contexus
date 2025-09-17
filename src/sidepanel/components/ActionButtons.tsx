@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { Send, Copy, Check, AlertTriangle } from "lucide-react";
+
 import { Button } from "~/components/ui/button";
 import { Badge } from "~/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
@@ -9,11 +10,13 @@ import { useBuilderStore } from "~/stores/builderStore";
 interface ActionButtonsProps {
   onInject: (prompt: string) => void;
   onCopy: (prompt: string) => void;
+  isInjecting?: boolean;
 }
 
 export const ActionButtons: React.FC<ActionButtonsProps> = ({
   onInject,
   onCopy,
+  isInjecting = false,
 }) => {
   const [copySuccess, setCopySuccess] = useState(false);
   const [injectSuccess, setInjectSuccess] = useState(false);
@@ -145,11 +148,16 @@ export const ActionButtons: React.FC<ActionButtonsProps> = ({
       <div className="grid grid-cols-1 gap-3">
         <Button
           onClick={handleInjectClick}
-          disabled={isDisabled}
+          disabled={isDisabled || isInjecting}
           className="w-full h-12 text-base"
           size="lg"
         >
-          {injectSuccess ? (
+          {isInjecting ? (
+            <>
+              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
+              주입 중...
+            </>
+          ) : injectSuccess ? (
             <>
               <Check className="h-5 w-5 mr-2" />
               적용됨!

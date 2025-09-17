@@ -45,6 +45,9 @@ export interface PlatformSelectors {
   /** Loading/thinking indicators */
   loadingIndicator?: string;
 
+  /** Input field selector for prompt injection */
+  inputField?: string;
+
 }
 
 /**

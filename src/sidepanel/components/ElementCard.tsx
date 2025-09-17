@@ -1,5 +1,6 @@
-import React from "react";
+import React, { useState } from "react";
 import { Plus, GripVertical } from "lucide-react";
+
 import { Card, CardContent, CardHeader } from "~/components/ui/card";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
@@ -9,6 +10,7 @@ interface ElementCardProps {
   element: Element;
   onQuickAdd: (element: Element) => void;
   draggable?: boolean;
+  compact?: boolean;
 }
 
 const getVariantByType = (type: Element['type']): "default" | "secondary" | "outline" | "destructive" => {
@@ -30,7 +32,10 @@ export const ElementCard: React.FC<ElementCardProps> = ({
   element,
   onQuickAdd,
   draggable = true,
+  compact = false,
 }) => {
+  const [isDragging, setIsDragging] = useState(false);
+
   const handleDragStart = (e: React.DragEvent<HTMLDivElement>) => {
     if (!draggable) return;
 
@@ -38,13 +43,19 @@ export const ElementCard: React.FC<ElementCardProps> = ({
     e.dataTransfer.setData("application/json", JSON.stringify(element));
     e.dataTransfer.effectAllowed = "copy";
 
-    // Add visual feedback
-    e.currentTarget.style.opacity = "0.5";
+    // Set dragging state for enhanced visual feedback
+    setIsDragging(true);
+
+    // Add global dragging class
+    document.body.classList.add('dragging-element');
   };
 
   const handleDragEnd = (e: React.DragEvent<HTMLDivElement>) => {
-    // Reset visual feedback
-    e.currentTarget.style.opacity = "1";
+    // Reset dragging state
+    setIsDragging(false);
+
+    // Remove global dragging class
+    document.body.classList.remove('dragging-element');
   };
 
   const handleQuickAdd = (e: React.MouseEvent) => {
@@ -52,51 +63,95 @@ export const ElementCard: React.FC<ElementCardProps> = ({
     onQuickAdd(element);
   };
 
+  const getCardClassName = () => {
+    const baseClasses = "element-card group transition-all duration-200";
+    const draggableClasses = draggable ? "draggable-element cursor-grab" : "";
+    const draggingClasses = isDragging ? "dragging opacity-60" : "";
+    const compactClasses = compact ? "text-xs" : "";
+
+    return `${baseClasses} ${draggableClasses} ${draggingClasses} ${compactClasses}`.trim();
+  };
+
+  const getCompactLayout = () => {
+    if (compact) {
+      return {
+        header: "pb-1",
+        content: "space-y-1",
+        title: "font-medium text-xs leading-tight",
+        description: "text-xs text-muted-foreground line-clamp-2",
+        badge: "text-xs px-1 py-0",
+        button: "h-5 w-5",
+        icon: "h-3 w-3",
+        stats: "text-xs text-muted-foreground"
+      };
+    }
+
+    return {
+      header: "pb-2",
+      content: "space-y-2",
+      title: "font-medium text-sm leading-tight",
+      description: "text-xs text-muted-foreground line-clamp-3",
+      badge: "text-xs",
+      button: "h-6 w-6",
+      icon: "h-4 w-4",
+      stats: "text-xs text-muted-foreground"
+    };
+  };
+
+  const layout = getCompactLayout();
+
   return (
     <Card
-      className="group cursor-move hover:shadow-md transition-shadow"
+      className={getCardClassName()}
       draggable={draggable}
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
     >
-      <CardHeader className="pb-2">
+      <CardHeader className={layout.header}>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             {draggable && (
-              <GripVertical className="h-4 w-4 text-muted-foreground" />
+              <GripVertical className={layout.icon + " text-muted-foreground"} />
             )}
-            <Badge variant={getVariantByType(element.type)}>
+            <Badge variant={getVariantByType(element.type)} className={layout.badge}>
               {element.type.toUpperCase()}
             </Badge>
+            {!compact && (
+              <Badge variant="outline" className={layout.badge}>
+                {element.trigger}
+              </Badge>
+            )}
           </div>
           <Button
             size="icon"
             variant="ghost"
-            className="opacity-0 group-hover:opacity-100 h-6 w-6"
+            className={`opacity-0 group-hover:opacity-100 ${layout.button}`}
             onClick={handleQuickAdd}
             title="Quick add to builder"
           >
-            <Plus className="h-4 w-4" />
+            <Plus className={layout.icon} />
           </Button>
         </div>
       </CardHeader>
       <CardContent>
-        <div className="space-y-2">
-          <Badge variant="outline" className="text-xs">
-            {element.trigger}
-          </Badge>
-          <h3 className="font-medium text-sm leading-tight">
+        <div className={layout.content}>
+          {compact && (
+            <Badge variant="outline" className={layout.badge}>
+              {element.trigger}
+            </Badge>
+          )}
+          <h3 className={layout.title}>
             {element.title}
           </h3>
-          <p className="text-xs text-muted-foreground line-clamp-3">
+          <p className={layout.description}>
             {element.content}
           </p>
-          {element.description && (
+          {!compact && element.description && (
             <p className="text-xs text-muted-foreground/80">
               {element.description}
             </p>
           )}
-          {element.tags && element.tags.length > 0 && (
+          {!compact && element.tags && element.tags.length > 0 && (
             <div className="flex flex-wrap gap-1">
               {element.tags.slice(0, 3).map((tag) => (
                 <Badge key={tag} variant="outline" className="text-xs px-1 py-0">
@@ -110,7 +165,7 @@ export const ElementCard: React.FC<ElementCardProps> = ({
               )}
             </div>
           )}
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
+          <div className={`flex items-center justify-between ${layout.stats}`}>
             <span>Used {element.usageCount} times</span>
             {element.isFavorite && <span>⭐</span>}
           </div>

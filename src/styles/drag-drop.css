@@ -1,0 +1,237 @@
+/* Drag & Drop Enhanced Visual Feedback Styles */
+
+/* Global dragging state */
+.dragging-element {
+  cursor: grabbing !important;
+}
+
+.dragging-element * {
+  cursor: grabbing !important;
+}
+
+/* Drop zone states */
+.drop-zone {
+  transition: all 0.2s ease-in-out;
+  position: relative;
+}
+
+.drop-zone.drag-active {
+  transform: scale(1.02);
+}
+
+.drop-zone.drag-over-valid {
+  background-color: rgb(59 130 246 / 0.05) !important;
+  border-color: rgb(59 130 246 / 0.3) !important;
+  box-shadow: 0 0 0 2px rgb(59 130 246 / 0.1);
+}
+
+.drop-zone.drag-over-invalid {
+  background-color: rgb(239 68 68 / 0.05) !important;
+  border-color: rgb(239 68 68 / 0.3) !important;
+  box-shadow: 0 0 0 2px rgb(239 68 68 / 0.1);
+}
+
+/* Draggable element states */
+.draggable-element {
+  transition: all 0.2s ease-in-out;
+  cursor: grab;
+}
+
+.draggable-element:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.draggable-element:active {
+  cursor: grabbing;
+}
+
+.draggable-element.dragging {
+  opacity: 0.5;
+  transform: rotate(2deg) scale(0.95);
+}
+
+/* Enhanced drop zone feedback */
+.drop-zone-placeholder {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 10;
+  opacity: 0;
+  transition: opacity 0.2s ease-in-out;
+}
+
+.drop-zone.drag-over-valid .drop-zone-placeholder {
+  opacity: 1;
+  background: linear-gradient(135deg,
+    rgba(59, 130, 246, 0.1) 0%,
+    rgba(59, 130, 246, 0.05) 100%);
+  border: 2px dashed rgb(59 130 246 / 0.4);
+}
+
+.drop-zone.drag-over-invalid .drop-zone-placeholder {
+  opacity: 1;
+  background: linear-gradient(135deg,
+    rgba(239, 68, 68, 0.1) 0%,
+    rgba(239, 68, 68, 0.05) 100%);
+  border: 2px dashed rgb(239 68 68 / 0.4);
+}
+
+/* Pulse animation for active drop zones */
+@keyframes pulse-valid {
+  0%, 100% {
+    box-shadow: 0 0 0 2px rgb(59 130 246 / 0.1);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgb(59 130 246 / 0.2);
+  }
+}
+
+@keyframes pulse-invalid {
+  0%, 100% {
+    box-shadow: 0 0 0 2px rgb(239 68 68 / 0.1);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgb(239 68 68 / 0.2);
+  }
+}
+
+.drop-zone.drag-over-valid {
+  animation: pulse-valid 1.5s infinite;
+}
+
+.drop-zone.drag-over-invalid {
+  animation: pulse-invalid 1.5s infinite;
+}
+
+/* Drag preview specific styles */
+.drag-preview {
+  transform-origin: center;
+  animation: dragStart 0.2s ease-out;
+}
+
+@keyframes dragStart {
+  from {
+    transform: scale(1) rotate(0deg);
+    opacity: 1;
+  }
+  to {
+    transform: scale(1.05) rotate(2deg);
+    opacity: 0.9;
+  }
+}
+
+/* Element card drag states */
+.element-card {
+  transition: all 0.2s ease-in-out;
+}
+
+.element-card.draggable {
+  cursor: grab;
+}
+
+.element-card.draggable:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.12);
+}
+
+.element-card.dragging {
+  opacity: 0.6;
+  transform: scale(0.98) rotate(1deg);
+  cursor: grabbing;
+}
+
+/* Responsive drag feedback */
+@media (max-width: 768px) {
+  .draggable-element:hover {
+    transform: none;
+  }
+
+  .drop-zone.drag-active {
+    transform: none;
+  }
+
+  .drag-preview {
+    width: 240px !important;
+    font-size: 12px !important;
+  }
+}
+
+/* Dark mode support */
+.dark .drop-zone.drag-over-valid {
+  background-color: rgb(59 130 246 / 0.1) !important;
+  border-color: rgb(59 130 246 / 0.4) !important;
+}
+
+.dark .drop-zone.drag-over-invalid {
+  background-color: rgb(239 68 68 / 0.1) !important;
+  border-color: rgb(239 68 68 / 0.4) !important;
+}
+
+.dark .drag-preview {
+  background: #1f2937 !important;
+  border-color: #374151 !important;
+  color: #f9fafb !important;
+}
+
+.dark .element-card.draggable:hover {
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
+}
+
+.dark .drop-zone-placeholder {
+  background: rgba(31, 41, 55, 0.5);
+}
+
+/* System preference dark mode fallback */
+@media (prefers-color-scheme: dark) {
+  :not(.light) .drop-zone.drag-over-valid {
+    background-color: rgb(59 130 246 / 0.1) !important;
+    border-color: rgb(59 130 246 / 0.4) !important;
+  }
+
+  :not(.light) .drop-zone.drag-over-invalid {
+    background-color: rgb(239 68 68 / 0.1) !important;
+    border-color: rgb(239 68 68 / 0.4) !important;
+  }
+
+  :not(.light) .drag-preview {
+    background: #1f2937 !important;
+    border-color: #374151 !important;
+    color: #f9fafb !important;
+  }
+}
+
+/* Accessibility improvements */
+@media (prefers-reduced-motion: reduce) {
+  .draggable-element,
+  .drop-zone,
+  .drag-preview {
+    transition: none !important;
+    animation: none !important;
+  }
+
+  .draggable-element:hover {
+    transform: none !important;
+  }
+
+  .drop-zone.drag-active {
+    transform: none !important;
+  }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .drop-zone.drag-over-valid {
+    border-color: #0066cc !important;
+    background-color: rgba(0, 102, 204, 0.1) !important;
+  }
+
+  .drop-zone.drag-over-invalid {
+    border-color: #cc0000 !important;
+    background-color: rgba(204, 0, 0, 0.1) !important;
+  }
+}

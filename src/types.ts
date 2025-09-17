@@ -144,6 +144,11 @@ export interface IncrementElementUsagePayload {
   delta?: number;
 }
 
+/** Payload for injecting prompt into input field. */
+export interface InjectPromptPayload {
+  prompt: string;
+}
+
 /** Enumerates chrome.runtime message types supported after the refactor. */
 export type MessageType =
   | "CREATE_ELEMENT"
@@ -156,7 +161,8 @@ export type MessageType =
   | "UPDATE_BUILDER_TEMPLATE"
   | "DELETE_BUILDER_TEMPLATE"
   | "LIST_BUILDER_TEMPLATES"
-  | "INCREMENT_ELEMENT_USAGE";
+  | "INCREMENT_ELEMENT_USAGE"
+  | "INJECT_PROMPT";
 
 /** Base chrome.runtime message interface. */
 export interface ChromeMessage<TPayload = unknown> {

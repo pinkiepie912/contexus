@@ -131,7 +131,7 @@ export class PromptEngine {
   private static buildTemplatePrompt(
     elements: BuilderElement[],
     selectedTemplate: Element,
-    separator: string
+    _separator: string
   ): {
     parts: string[];
     validation: Partial<PromptValidationResult>;
@@ -256,7 +256,7 @@ export class PromptEngine {
     parts: string[],
     format: 'plain' | 'structured' | 'markdown',
     separator: string,
-    includeMetadata: boolean
+    _includeMetadata: boolean
   ): string {
     if (parts.length === 0) return '';
 
