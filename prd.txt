@@ -1,0 +1,645 @@
+# Contexus 프롬프트 스튜디오 구현 계획서 (PRD)
+
+## 1. 프로젝트 개요
+
+### 기획 목표
+- **서비스 명**: 프롬프트 스튜디오 (Prompt Studio)
+- **목적**: 사용자가 LLM 대화를 중단 없이 보면서, Side Panel에서 저장된 엘리먼트를 레고 블록처럼 조립하여 정교한 프롬프트를 완성
+- **핵심 컨셉**: Library(라이브러리)와 Builder(빌더) 두 영역으로 분리된 직관적 UX
+
+### 기술 스택 분석
+- **현재 구조**: React 19 + TypeScript + Tailwind CSS 4.1 + Zustand + Dexie (IndexedDB)
+- **UI 컴포넌트**: shadcn/ui (Radix UI + CVA) - 6개 컴포넌트 기존 구축
+- **아키텍처**: Chrome Extension MV3 + Content Script + Side Panel
+- **데이터 모델 변경**: Element 중심으로 단순화 (Snippet, Role 테이블 제거)
+- **기존 shadcn/ui**: Button, Card, Input, ScrollArea, Select, Toast
+
+### 아키텍처 단순화 방향
+- **기존**: Snippet (캡처) + Role (역할) → 복잡한 조합
+- **신규**: Element만 사용 (template, context, example, role 타입으로 통합)
+- **장점**: 단순한 데이터 모델, 통합된 검색/관리, 일관된 UX
+
+## 2. 데이터 모델 설계
+
+### 2.1 Element 중심 통합 모델
+```typescript
+// 단일 Element 모델 - 모든 프롬프트 구성 요소 통합
+interface Element {
+  id: string;
+  type: 'template' | 'context' | 'example' | 'role';  // 4가지 타입
+  trigger: string;  // 필수: /blog, /company_info, /writing_style, /expert
+
+  // 공통 필드
+  title: string;  // 필수로 변경
+  content: string;
+  description?: string;
+  tags?: string[];
+  createdAt: Date;
+  updatedAt?: Date;
+  isFavorite?: boolean;
+  usageCount: number;  // 사용 빈도 추적
+
+  // Template 전용 필드
+  requiredSlots?: SlotDefinition[];
+
+  // Role 전용 필드 (기존 Role 테이블 통합)
+  category?: string;  // 'coding', 'writing', 'analysis' 등
+  promptTemplate?: string;  // role 타입일 때 사용
+}
+
+interface SlotDefinition {
+  id: string;
+  name: string;  // 'Context', 'Examples', 'Role'
+  type: 'context' | 'example' | 'role' | 'text';
+  required: boolean;
+  placeholder?: string;
+}
+
+// Builder 상태 관리
+interface BuilderState {
+  elements: BuilderElement[];
+  selectedTemplate?: Element;
+}
+
+interface BuilderElement {
+  id: string;
+  element: Element;
+  slotAssignments?: Record<string, Element>;  // slotId → Element
+}
+```
+
+### 2.2 단순화된 IndexedDB 스키마 (Element만 사용)
+```typescript
+// src/lib/db.ts - 완전히 새로운 단순 구조
+export class ContextusDB extends Dexie {
+  elements!: EntityTable<Element, "id">;  // 단일 테이블
+
+  constructor() {
+    super("ContextusDB");
+
+    // 버전 1: Element 중심 단순 스키마
+    this.version(1).stores({
+      elements: "id, type, trigger, title, content, createdAt, usageCount, *tags, isFavorite, category"
+    });
+
+    // 기본 데이터 시딩
+    this.on("populate", () => this.seedDefaultElements());
+  }
+
+  private async seedDefaultElements(): Promise<void> {
+    const defaultElements: Element[] = [
+      // Template 타입
+      {
+        id: uuidv4(),
+        type: 'template',
+        trigger: '/blog',
+        title: '블로그 포스트 작성',
+        content: '주제: {topic}\n\n다음 블로그 포스트를 작성해주세요...',
+        description: '블로그 포스트 작성용 템플릿',
+        requiredSlots: [
+          { id: 'context', name: 'Context', type: 'context', required: true, placeholder: '회사/제품 정보' },
+          { id: 'examples', name: 'Examples', type: 'example', required: false, placeholder: '작성 예시' },
+          { id: 'role', name: 'Role', type: 'role', required: false, placeholder: '작성자 역할' }
+        ],
+        createdAt: new Date(),
+        usageCount: 0
+      },
+
+      // Context 타입
+      {
+        id: uuidv4(),
+        type: 'context',
+        trigger: '/company',
+        title: '회사 소개',
+        content: '우리 회사는 AI 기반 솔루션을 제공하는...',
+        description: '회사 기본 정보',
+        createdAt: new Date(),
+        usageCount: 0
+      },
+
+      // Example 타입
+      {
+        id: uuidv4(),
+        type: 'example',
+        trigger: '/good_writing',
+        title: '좋은 글쓰기 예시',
+        content: '예시: 명확하고 간결한 문체로...',
+        description: '글쓰기 스타일 예시',
+        createdAt: new Date(),
+        usageCount: 0
+      },
+
+      // Role 타입 (기존 Role 테이블을 Element로 통합)
+      {
+        id: uuidv4(),
+        type: 'role',
+        trigger: '/expert',
+        title: '전문가',
+        content: '당신은 해당 분야의 전문가입니다...',
+        promptTemplate: '당신은 {field} 분야의 전문가입니다. 정확하고 전문적인 답변을 제공해주세요.',
+        category: 'general',
+        createdAt: new Date(),
+        usageCount: 0
+      }
+    ];
+
+    await this.elements.bulkAdd(defaultElements);
+  }
+}
+```
+
+### 2.3 IndexedDB 최적화 전략
+- **인덱싱**: type, trigger, tags 멀티값 인덱스로 빠른 검색
+- **복합 인덱스**: [type, createdAt], [platform, type] 조합 인덱스
+- **캐싱**: 자주 사용하는 템플릿은 메모리 캐시
+- **배치 처리**: bulkAdd/bulkUpdate로 성능 최적화
+- **지연 로딩**: 대용량 컨텐츠는 필요시에만 로드
+
+## 3. 컴포넌트 아키텍처
+
+### 3.1 shadcn/ui 기반 컴포넌트 구조
+```
+PromptStudio (src/sidepanel/PromptStudio.tsx)
+├── Library (상단) - Card 컨테이너
+│   ├── SearchInput - shadcn/ui Input + Search 아이콘
+│   ├── FilterTabs - shadcn/ui Button (variant="ghost") 조합
+│   └── ElementList - shadcn/ui ScrollArea
+│       └── ElementCard - shadcn/ui Card + Badge + Button
+└── Builder (하단) - Card 컨테이너
+    ├── EmptyState - 커스텀 컴포넌트
+    ├── TemplateSlot - shadcn/ui Card + Badge
+    ├── SlotComponents[] - shadcn/ui Card + Input + Button
+    └── ActionButtons - shadcn/ui Button 조합
+```
+
+### 3.2 추가 필요한 shadcn/ui 컴포넌트
+프로젝트에 다음 컴포넌트들을 추가해야 합니다:
+- **Badge**: 4가지 타입 뱃지 (template/context/example/role), 트리거 태그용
+- **Tabs**: 필터 탭 [전체]/[템플릿]/[컨텍스트]/[예시]/[역할]
+- **Separator**: Library와 Builder 영역 구분용
+- **Label**: 슬롯 라벨용
+- **DropdownMenu**: 엘리먼트 추가/편집 옵션
+- **Popover**: 인라인 검색 팝업
+- **Command**: 트리거 기반 검색 자동완성
+- **Dialog**: 엘리먼트 생성/편집 모달
+
+### 3.3 shadcn/ui 기반 주요 컴포넌트 설계
+
+#### ElementCard (shadcn/ui Card + Badge + Button)
+```typescript
+import { Card, CardContent, CardHeader } from "~/components/ui/card"
+import { Badge } from "~/components/ui/badge"
+import { Button } from "~/components/ui/button"
+
+interface ElementCardProps {
+  element: Element;
+  onQuickAdd: (element: Element) => void;
+  draggable?: boolean;
+}
+
+// 사용 예시
+<Card className="group cursor-move hover:shadow-md transition-shadow" draggable>
+  <CardHeader className="pb-2">
+    <div className="flex items-center justify-between">
+      <Badge variant={getVariantByType(element.type)}>
+        {element.type.toUpperCase()}
+      </Badge>
+      <Button
+        size="icon"
+        variant="ghost"
+        className="opacity-0 group-hover:opacity-100"
+        onClick={() => onQuickAdd(element)}
+      >
+        <Plus className="h-4 w-4" />
+      </Button>
+    </div>
+  </CardHeader>
+  <CardContent>
+    <Badge variant="outline" className="mb-2">
+      {element.trigger}
+    </Badge>
+    <p className="text-sm text-muted-foreground line-clamp-3">
+      {element.content}
+    </p>
+  </CardContent>
+</Card>
+```
+
+#### Builder (shadcn/ui Card 기반)
+```typescript
+import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card"
+import { Button } from "~/components/ui/button"
+import { Separator } from "~/components/ui/separator"
+
+interface BuilderProps {
+  elements: BuilderElement[];
+  onAddElement: (element: Element, slotId?: string) => void;
+  onRemoveElement: (elementId: string) => void;
+  onInject: () => void;
+  onCopy: () => void;
+}
+```
+
+#### SlotComponent (shadcn/ui Input + Card)
+```typescript
+import { Input } from "~/components/ui/input"
+import { Label } from "~/components/ui/label"
+import { Button } from "~/components/ui/button"
+import { X } from "lucide-react"
+
+interface SlotProps {
+  slot: SlotDefinition;
+  assignedElement?: Element;
+  onDrop: (element: Element) => void;
+  onRemove: () => void;
+  onInlineSearch: () => void;
+}
+
+// 사용 예시
+<div className="space-y-2">
+  <Label>{slot.name}</Label>
+  {assignedElement ? (
+    <Card className="p-2">
+      <div className="flex items-center justify-between">
+        <Badge variant="outline">{assignedElement.trigger}</Badge>
+        <Button size="icon" variant="ghost" onClick={onRemove}>
+          <X className="h-4 w-4" />
+        </Button>
+      </div>
+    </Card>
+  ) : (
+    <Input
+      placeholder={slot.placeholder}
+      onFocus={onInlineSearch}
+      className="border-dashed"
+    />
+  )}
+</div>
+```
+
+## 4. 구현 단계별 계획
+
+### Phase 1: 데이터 모델 및 기반 구조 (3-4일)
+
+#### Step 1.1: shadcn/ui 컴포넌트 추가
+- **작업**: 필요한 shadcn/ui 컴포넌트 설치
+- **명령어**:
+  ```bash
+  # 추가 필요한 컴포넌트들
+  npx shadcn@latest add badge
+  npx shadcn@latest add tabs
+  npx shadcn@latest add separator
+  npx shadcn@latest add label
+  npx shadcn@latest add dropdown-menu
+  npx shadcn@latest add popover
+  npx shadcn@latest add command
+  npx shadcn@latest add dialog
+  ```
+
+#### Step 1.2: 타입 정의 확장
+- **파일**: `src/types.ts`
+- **작업**: Element, SlotDefinition, BuilderState 인터페이스 추가
+- **변경사항**: 기존 Snippet 타입을 Element로 확장
+
+#### Step 1.3: IndexedDB 스키마 업데이트
+- **파일**: `src/lib/db.ts`
+- **작업**:
+  - ContextusDB 버전 2 스키마 추가
+  - elements, builderTemplates 테이블 추가
+  - 자동 마이그레이션 로직 (snippets → elements)
+  - 복합 인덱스 최적화
+- **IndexedDB 최적화**:
+  - 복합 인덱스: [type, createdAt], [platform, type]
+  - 멀티값 인덱스: *tags
+  - 배치 처리용 bulkAdd/bulkUpdate 유틸
+
+#### Step 1.4: 상태 관리 설정 (Zustand)
+- **파일**: `src/stores/builderStore.ts` (신규)
+- **작업**: Builder 상태 관리
+- **기능**:
+  - 엘리먼트 추가/제거
+  - 슬롯 할당/해제
+  - 드래그 앤 드롭 상태
+  - 최종 프롬프트 생성
+
+#### Step 1.5: IndexedDB API 함수 확장
+- **파일**: `src/lib/db.ts`, `src/lib/messaging.ts`
+- **작업**: Element CRUD 및 검색 최적화
+- **기능**:
+  - createElement, updateElement, deleteElement
+  - searchElements (인덱스 활용 최적화)
+  - getElementsByType, getTemplatesWithSlots
+  - 캐시 전략: 자주 사용하는 템플릿 메모리 캐시
+
+### Phase 2: Library 컴포넌트 구현 (shadcn/ui 기반, 4-5일)
+
+#### Step 2.1: ElementCard 컴포넌트 (shadcn/ui Card + Badge)
+- **파일**: `src/sidepanel/components/ElementCard.tsx` (신규)
+- **shadcn/ui 컴포넌트**: Card, CardHeader, CardContent, Badge, Button
+- **작업**:
+  - HTML5 Drag API로 드래그 가능한 카드
+  - Badge로 타입 구분 (variant: default/secondary/outline)
+  - Badge로 트리거 태그 (/blog_post)
+  - Button (size="icon", variant="ghost")로 빠른 추가
+  - Lucide React 아이콘 (Plus, GripVertical)
+- **성능 최적화**: React.memo로 불필요한 리렌더링 방지
+
+#### Step 2.2: FilterTabs 컴포넌트 (shadcn/ui Tabs 또는 Button)
+- **파일**: `src/sidepanel/components/FilterTabs.tsx` (신규)
+- **shadcn/ui 컴포넌트**: Tabs, TabsList, TabsTrigger 또는 Button (variant="ghost")
+- **작업**: [전체], [템플릿], [컨텍스트], [예시] 필터링
+- **기능**:
+  - 타입별 필터링
+  - 카운트 표시 Badge
+  - 키보드 네비게이션 (방향키)
+
+#### Step 2.3: Library 메인 컴포넌트 (shadcn/ui 통합)
+- **파일**: `src/sidepanel/components/Library.tsx` (신규)
+- **shadcn/ui 컴포넌트**: Card, Input (Search), ScrollArea
+- **작업**:
+  - Input with Search icon (lucide-react)
+  - FilterTabs 통합
+  - ScrollArea로 가상 스크롤링
+  - 자동 포커스 (useEffect + ref)
+- **IndexedDB 최적화**:
+  - 디바운스 검색 (300ms)
+  - 타입 인덱스 활용
+  - 페이지네이션 (50개씩)
+
+#### Step 2.4: HTML5 Drag & Drop 구현 (External 라이브러리 없이)
+- **파일**: `src/hooks/useDragAndDrop.ts` (신규)
+- **작업**:
+  - HTML5 Drag API 커스텀 훅
+  - TypeScript 타입 안전성
+  - 드래그 프리뷰 커스터마이징
+  - 드롭 존 시각적 피드백
+- **장점**:
+  - 추가 의존성 없음
+  - 번들 크기 최소화
+  - shadcn/ui와 완벽 호환
+
+### Phase 3: Builder 컴포넌트 구현 (5-6일)
+
+#### Step 3.1: 기본 Builder 구조
+- **파일**: `src/sidepanel/components/Builder.tsx` (신규)
+- **작업**:
+  - 빈 상태 (EmptyState)
+  - 엘리먼트 추가 시 슬롯 시스템 활성화
+  - 드롭 존 설정
+
+#### Step 3.2: SlotComponent 구현
+- **파일**: `src/sidepanel/components/SlotComponent.tsx` (신규)
+- **작업**:
+  - 빈 슬롯 플레이스홀더
+  - 드롭 이벤트 처리
+  - 인라인 검색 (/ 입력 시)
+  - 제거 버튼 (x)
+
+#### Step 3.3: TemplateSlot 구현
+- **파일**: `src/sidepanel/components/TemplateSlot.tsx` (신규)
+- **작업**:
+  - 템플릿 표시
+  - 하위 슬롯 동적 생성
+  - 템플릿 변경 시 슬롯 리셋
+
+#### Step 3.4: ActionButtons 구현
+- **파일**: `src/sidepanel/components/ActionButtons.tsx` (신규)
+- **작업**:
+  - [➡️ 입력창에 적용] 버튼
+  - [📋 복사] 버튼
+  - 프롬프트 조립 로직
+
+### Phase 4: 통합 및 고급 기능 (3-4일)
+
+#### Step 4.1: 프롬프트 조립 엔진
+- **파일**: `src/lib/promptEngine.ts` (신규)
+- **작업**:
+  - 템플릿 + 슬롯 → 최종 프롬프트 변환
+  - 변수 치환 및 템플릿 처리
+  - 검증 로직
+
+#### Step 4.2: 인라인 검색 구현
+- **파일**: `src/sidepanel/components/InlineSearch.tsx` (신규)
+- **작업**:
+  - 슬롯 클릭 시 팝업 검색
+  - 타입별 필터링 자동 적용
+  - 키보드 네비게이션
+
+#### Step 4.3: Content Script 통합
+- **파일**: `src/content/ContentManager.ts` 수정
+- **작업**:
+  - 프롬프트 주입 기능 추가
+  - 플랫폼별 입력창 감지
+  - 메시지 패싱으로 Builder와 연동
+
+#### Step 4.4: PromptStudio 메인 컴포넌트
+- **파일**: `src/sidepanel/PromptStudio.tsx` (신규)
+- **작업**:
+  - Library + Builder 통합
+  - 레이아웃 관리 (상단/하단 분할)
+  - 전역 상태 연결
+
+### Phase 5: 기존 코드와 통합 (2-3일)
+
+#### Step 5.1: 라우팅 설정
+- **파일**: `src/sidepanel/App.tsx` 수정
+- **작업**:
+  - PromptStudio 페이지 추가
+  - 네비게이션 탭 또는 모드 전환
+  - 기존 기능과 공존
+
+#### Step 5.2: 데이터 마이그레이션
+- **파일**: `src/lib/migration.ts` (신규)
+- **작업**:
+  - 기존 snippets를 elements로 변환
+  - 기본 템플릿 생성
+  - 버전 관리 로직
+
+#### Step 5.3: 스타일링 조정
+- **파일**: CSS/Tailwind 클래스 조정
+- **작업**:
+  - 드래그 앤 드롭 시각적 피드백
+  - 반응형 레이아웃
+  - 다크 모드 대응
+
+#### Step 5.4: 최종 테스팅 및 버그 수정
+- **작업**:
+  - 엔드투엔드 테스트
+  - 메모리 누수 확인
+  - 성능 최적화
+
+## 5. 기존 프로젝트 변경사항
+
+### 5.1 제거할 기존 코드 (Legacy Code Cleanup)
+
+#### 완전 제거 대상
+- **src/sidepanel/App.tsx**: 기존 Snippet 기반 UI 전체 제거
+- **src/hooks/useSnippets.ts**: Snippet/Role 조합 로직 제거
+- **기존 SnippetCard 컴포넌트**: 모든 Snippet 관련 UI 컴포넌트
+
+#### src/types.ts
+```diff
+- export interface Snippet { ... }  // 완전 제거
+- export interface Role { ... }     // 완전 제거
++ export interface Element {        // 새로 추가
++   type: 'template' | 'context' | 'example' | 'role';
++   ...
++ }
+```
+
+#### src/lib/db.ts
+```diff
+- snippets!: EntityTable<Snippet, "id">;  // 제거
+- roles!: EntityTable<Role, "id">;        // 제거
++ elements!: EntityTable<Element, "id">;  // 단일 테이블
+
+- // 기존 복잡한 버전 관리 제거
++ // 단순한 Element 중심 스키마
++ this.version(1).stores({
++   elements: "id, type, trigger, title, content, createdAt, usageCount, *tags"
++ });
+```
+
+#### src/lib/messaging.ts
+```diff
+- searchSnippets()     // 제거
+- getAllRoles()        // 제거
+- saveSnippet()        // 제거
++ searchElements()     // 새로 추가
++ createElement()      // 새로 추가
++ updateElement()      // 새로 추가
+```
+
+### 5.2 새로 생성할 파일들
+
+#### src/stores/elementStore.ts
+- Element 중심 상태 관리 (Zustand)
+
+#### src/stores/builderStore.ts
+- Builder 전용 상태 관리
+
+#### src/lib/promptEngine.ts
+- Element 조합 → 최종 프롬프트 변환 로직
+
+#### src/hooks/useElements.ts
+- Element CRUD 및 검색 훅 (useSnippets 대체)
+
+#### src/sidepanel/PromptStudio.tsx
+- 메인 애플리케이션 (기존 App.tsx 완전 대체)
+
+#### src/sidepanel/components/
+- **Library.tsx**: Element 검색/탐색 영역
+- **Builder.tsx**: 프롬프트 조립 영역
+- **ElementCard.tsx**: 4가지 타입 지원 카드
+- **FilterTabs.tsx**: [전체]/[템플릿]/[컨텍스트]/[예시]/[역할] 탭
+- **SlotComponent.tsx**: 템플릿 슬롯 UI
+- **ActionButtons.tsx**: 주입/복사 버튼
+- **InlineSearch.tsx**: 슬롯 내 검색 팝업
+- **ElementDialog.tsx**: Element 생성/편집 모달
+
+#### src/content/ContentManager.ts
+```diff
++ // 프롬프트 주입 기능 추가
++ injectPrompt(prompt: string): void
++ detectInputField(): HTMLElement | null
+```
+
+### 5.3 패키지 의존성 변경
+
+#### 현재 프로젝트 (변경 없음)
+```json
+{
+  "dependencies": {
+    "@radix-ui/react-slot": "^1.2.3",  // shadcn/ui 기반
+    "class-variance-authority": "^0.7.1",  // shadcn/ui 스타일링
+    "clsx": "^2.1.1",
+    "dexie": "^4.2.0",  // IndexedDB (이미 구축됨)
+    "lucide-react": "^0.544.0",  // 아이콘 (이미 구축됨)
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "tailwind-merge": "^3.3.1",  // shadcn/ui 유틸리티
+    "uuid": "^13.0.0",
+    "zustand": "^5.0.8"
+  }
+}
+```
+
+#### shadcn/ui 추가 컴포넌트만 설치
+- **외부 드래그 라이브러리 불필요**: HTML5 Drag API 사용
+- **기존 구조 활용**: Dexie (IndexedDB), Zustand (상태관리)
+- **추가 설치**: `npx shadcn@latest add [component]` 방식
+
+## 6. 개발 우선순위 및 위험요소
+
+### 6.1 핵심 기능 우선순위
+1. **High**: 기본 드래그 앤 드롭, 템플릿 슬롯 시스템
+2. **Medium**: 인라인 검색, 프롬프트 주입
+3. **Low**: 고급 필터링, 키보드 단축키
+
+### 6.2 기술적 위험요소 (IndexedDB & shadcn/ui 고려)
+- **IndexedDB 성능**: 대용량 Element 검색 시 성능 저하
+- **HTML5 Drag API**: 모바일 환경에서 터치 지원 제한
+- **shadcn/ui 커스터마이징**: 기본 스타일과 맞지 않는 디자인 요구
+- **메모리 사용량**: 복합 인덱스와 캐시로 인한 메모리 증가
+
+### 6.3 완화 방안 (최적화 전략)
+- **IndexedDB 최적화**:
+  - 복합 인덱스 활용: [type, createdAt]
+  - 페이지네이션: 50개씩 로드
+  - 디바운스 검색: 300ms
+  - 자주 사용하는 템플릿 메모리 캐시
+- **성능 모니터링**:
+  - React DevTools Profiler
+  - Chrome DevTools IndexedDB 탭
+  - 메모리 사용량 추적
+- **대안 준비**:
+  - 터치 디바이스용 대체 UI (Button 기반)
+  - shadcn/ui CSS 변수 커스터마이징
+  - 점진적 기능 추가 (Progressive Enhancement)
+
+## 7. 성공 지표
+
+### 7.1 기능적 지표 (IndexedDB & shadcn/ui)
+- **IndexedDB 성능**: 검색 응답 시간 <200ms (50개 Element 기준)
+- **UI 반응성**: shadcn/ui 컴포넌트 렌더링 <50ms
+- **드래그 앤 드롭**: HTML5 API 완료율 95%+ (데스크톱)
+- **프롬프트 조립**: 템플릿 + 슬롯 성공률 98%+
+- **메모리 효율성**: 100개 Element 로드 시 <10MB 메모리 사용
+
+### 7.2 사용자 경험 지표
+- **학습 곡선**: 첫 사용 후 3분 내 기본 조립 완료 (shadcn/ui 일관성)
+- **워크플로우 효율성**: 기존 대비 60% 시간 단축
+- **접근성**: shadcn/ui 기본 접근성 준수 (키보드 네비게이션)
+- **오류율**: 사용자 오류 <3% (직관적 UI)
+
+### 7.3 기술적 지표
+- **Bundle Size**: 추가 코드 <100KB (HTML5 Drag, shadcn/ui만 사용)
+- **IndexedDB 효율**: 복합 인덱스로 검색 성능 5배 향상
+- **Code Quality**: TypeScript 100% 타입 안전성
+- **Performance**: Lighthouse 성능 점수 90+ 유지
+
+---
+
+**총 예상 개발 기간**: 12-16일 (대폭 단축)
+**단축 이유**:
+- **Element 단일 모델**: Snippet/Role 복잡성 제거로 4-5일 단축
+- **기존 인프라 활용**: shadcn/ui, IndexedDB(Dexie), Zustand 그대로 사용
+- **Legacy 코드 정리**: 깔끔한 시작으로 버그 위험 감소
+- **단순한 데이터 흐름**: 하나의 테이블, 하나의 검색 로직
+
+**권장 개발 순서**:
+1. **Phase 1**: Legacy 제거 + Element 모델 구축 (2-3일)
+2. **Phase 2**: Library 컴포넌트 (shadcn/ui 기반, 3-4일)
+3. **Phase 3**: Builder 컴포넌트 (3-4일)
+4. **Phase 4**: 통합 및 프롬프트 주입 (2-3일)
+5. **Phase 5**: 테스팅 및 최적화 (2일)
+
+**핵심 성공 요인**:
+- **Clean Start**: Legacy 코드 완전 제거로 깔끔한 시작
+- **Element 중심 설계**: 4가지 타입으로 모든 기능 통합
+- **shadcn/ui 일관성**: 기존 컴포넌트 패턴 준수
+- **IndexedDB 최적화**: 단일 테이블로 단순하고 빠른 검색
+
+**마이그레이션 전략**:
+- 기존 사용자 데이터 손실 없이 Element로 자동 변환
+- 점진적 기능 활성화로 안정성 확보
