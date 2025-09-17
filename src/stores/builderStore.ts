@@ -35,10 +35,19 @@ export const useBuilderStore = create<BuilderStoreState>((set, get) => ({
       element,
     };
 
-    set((state) => ({
-      elements: [...state.elements, builderElement],
-      isDirty: true,
-    }));
+    set((state) => {
+      // If adding a template element, automatically set it as selected template
+      const newState: Partial<BuilderStoreState> = {
+        elements: [...state.elements, builderElement],
+        isDirty: true,
+      };
+
+      if (element.type === 'template') {
+        newState.selectedTemplate = element;
+      }
+
+      return newState;
+    });
 
     return builderElement.id;
   },
@@ -166,29 +175,8 @@ export const useBuilderStore = create<BuilderStoreState>((set, get) => ({
 
   buildPreview() {
     const state = get();
-    if (!state.selectedTemplate) {
-      return state.elements.map((entry) => entry.element.content).join("\n\n");
-    }
-
-    const templateSlots = state.selectedTemplate.requiredSlots ?? [];
-    const templateEntry = state.elements.find((entry) => entry.element.id === state.selectedTemplate?.id);
-
-    if (!templateEntry) {
-      return state.selectedTemplate.content;
-    }
-
-    const slotContent = templateSlots
-      .map((slot) => {
-        const assigned = templateEntry.slotAssignments?.[slot.id];
-        if (!assigned) {
-          return slot.required ? `[${slot.name}]` : "";
-        }
-        return assigned.content;
-      })
-      .filter(Boolean)
-      .join("\n\n");
-
-    return [state.selectedTemplate.content, slotContent].filter(Boolean).join("\n\n");
+    // Use the new prompt engine for better processing
+    return state.elements.map((entry) => entry.element.content).join("\n\n");
   },
 }));
 
