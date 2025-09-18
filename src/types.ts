@@ -162,7 +162,10 @@ export type MessageType =
   | "DELETE_BUILDER_TEMPLATE"
   | "LIST_BUILDER_TEMPLATES"
   | "INCREMENT_ELEMENT_USAGE"
-  | "INJECT_PROMPT";
+  | "INJECT_PROMPT"
+  | "OPEN_SIDEPANEL"
+  | "OPEN_SIDEPANEL_FOR_SAVE"
+  | "PREFILL_NEW_ELEMENT";
 
 /** Base chrome.runtime message interface. */
 export interface ChromeMessage<TPayload = unknown> {
@@ -188,3 +191,19 @@ export type NewBuilderTemplateInput = Omit<
   updatedAt?: Date;
   usageCount?: number;
 };
+
+/**
+ * Payload for opening side panel for a quick save flow and prefill the new element.
+ */
+export interface OpenSidePanelForSavePayload {
+  type: ElementType;
+  content: string;
+}
+
+/**
+ * Payload delivered to the side panel to prefill a new element form.
+ */
+export interface PrefillNewElementPayload {
+  type: ElementType;
+  content: string;
+}

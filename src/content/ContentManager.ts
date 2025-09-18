@@ -48,6 +48,20 @@ export class ContentManager {
   private useShadowDOM = false; // Feature flag for Shadow DOM rendering
   private currentInputField: HTMLElement | null = null; // Track current input field for prompt injection
 
+  // FAB-related properties
+  private fabHost: HTMLElement | null = null; // Host element for FAB Shadow DOM
+  private fabController: { cleanup: () => void } | null = null; // FAB renderer controller
+  private fabActive = false; // FAB active state (for clipboard detection)
+  private fabPosition: { x: number; y: number } | null = null; // FAB position
+
+  // Tooltip-related properties
+  private tooltipHost: HTMLElement | null = null;
+  private tooltipController: { cleanup: () => void } | null = null;
+  private tooltipTimer: ReturnType<typeof setTimeout> | null = null;
+
+  // Resize handler
+  private boundResizeHandler: (() => void) | null = null;
+
   constructor() {
     this.adapter = getCurrentAdapter();
 
@@ -84,6 +98,9 @@ export class ContentManager {
 
     // Setup message listening for prompt injection from side panel
     this.setupPromptInjectionListener();
+
+    // Initialize Floating Action Button
+    this.initializeFloatingActionButton();
   }
 
   /**
@@ -973,6 +990,351 @@ export class ContentManager {
     return this.currentInputField || this.detectInputField();
   }
 
+  // === Floating Action Button Methods ===
+
+  /**
+   * Initialize the Floating Action Button
+   */
+  private async initializeFloatingActionButton(): Promise<void> {
+    try {
+      // Load saved position from localStorage
+      await this.loadFabPosition();
+
+      // Create FAB host element
+      this.createFabHost();
+
+      // Render FAB if Shadow DOM is supported
+      if (this.useShadowDOM && this.fabHost) {
+        this.renderFloatingActionButton();
+      }
+
+      // Setup clipboard detection listener
+      this.setupClipboardDetection();
+
+      // Setup resize handler to keep FAB within viewport without flicker
+      this.setupResizeHandler();
+
+    } catch (error) {
+      console.warn('[Contexus] FAB initialization failed:', error);
+    }
+  }
+
+  /**
+   * Create host element for FAB
+   */
+  private createFabHost(): void {
+    // Create FAB host element
+    this.fabHost = document.createElement('div');
+    this.fabHost.setAttribute('data-contexus-fab-host', 'true');
+    this.fabHost.style.cssText = `
+      position: fixed;
+      pointer-events: none;
+      z-index: 999999;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+    `;
+
+    // Insert into page
+    document.body.appendChild(this.fabHost);
+
+    // Create Tooltip host element (separate to avoid instance collisions)
+    this.tooltipHost = document.createElement('div');
+    this.tooltipHost.setAttribute('data-contexus-tooltip-host', 'true');
+    this.tooltipHost.style.cssText = `
+      position: fixed;
+      pointer-events: none;
+      z-index: 1000000;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+    `;
+    document.body.appendChild(this.tooltipHost);
+  }
+
+  /**
+   * Render the Floating Action Button using Shadow DOM
+   */
+  private renderFloatingActionButton(): void {
+    if (!this.fabHost) return;
+
+    try {
+      // Cleanup existing FAB
+      if (this.fabController) {
+        this.fabController.cleanup();
+        this.fabController = null;
+      }
+
+      // Render new FAB
+      this.fabController = ShadowDOMRenderer.renderFloatingActionButton({
+        hostElement: this.fabHost,
+        active: this.fabActive,
+        onClick: () => this.handleFabClick(),
+        initialPosition: this.fabPosition || undefined,
+        onPositionChange: (position) => this.handleFabPositionChange(position)
+      });
+
+      console.log('[Contexus] FAB rendered successfully');
+      // Also (re)render tooltip when FAB state/position changes
+      this.renderTooltip();
+    } catch (error) {
+      console.warn('[Contexus] FAB rendering failed:', error);
+    }
+  }
+
+  /**
+   * Handle FAB click - open side panel
+   */
+  private async handleFabClick(): Promise<void> {
+    try {
+      // Send message to background to open side panel
+      await chrome.runtime.sendMessage({
+        type: 'OPEN_SIDEPANEL'
+      });
+
+      console.log('[Contexus] Side panel open request sent');
+    } catch (error) {
+      console.warn('[Contexus] Failed to open side panel:', error);
+    }
+  }
+
+  /**
+   * Handle FAB position change - save to localStorage
+   */
+  private async handleFabPositionChange(position: { x: number; y: number }): Promise<void> {
+    try {
+      this.fabPosition = this.clampToViewport(position);
+      await this.saveFabPosition(position);
+      // Keep tooltip in sync with position
+      this.renderTooltip();
+    } catch (error) {
+      console.warn('[Contexus] Failed to save FAB position:', error);
+    }
+  }
+
+  /**
+   * Ensure a position is within current viewport bounds.
+   */
+  private clampToViewport(pos: { x: number; y: number }): { x: number; y: number } {
+    const maxX = Math.max(0, window.innerWidth - 55);
+    const maxY = Math.max(0, window.innerHeight - 55);
+    return {
+      x: Math.max(0, Math.min(pos.x, maxX)),
+      y: Math.max(0, Math.min(pos.y, maxY)),
+    };
+  }
+
+  /**
+   * Setup window resize listener to clamp and re-render immediately.
+   */
+  private setupResizeHandler(): void {
+    if (this.boundResizeHandler) return;
+    this.boundResizeHandler = () => {
+      // Determine a baseline position if none saved yet
+      const baseline = this.fabPosition || {
+        x: window.innerWidth - 55 - 48,
+        y: window.innerHeight - 55 - 48,
+      };
+      const clamped = this.clampToViewport(baseline);
+      if (!this.fabPosition || clamped.x !== this.fabPosition.x || clamped.y !== this.fabPosition.y) {
+        this.fabPosition = clamped;
+        // Avoid async storage on every resize tick to reduce jank
+        this.renderFloatingActionButton();
+      }
+    };
+    window.addEventListener('resize', this.boundResizeHandler);
+  }
+
+  /**
+   * Load FAB position from localStorage
+   */
+  private async loadFabPosition(): Promise<void> {
+    try {
+      const result = await chrome.storage.local.get(['contextus_fab_position']);
+      if (result.contextus_fab_position) {
+        this.fabPosition = result.contextus_fab_position;
+      }
+    } catch (error) {
+      console.warn('[Contexus] Failed to load FAB position:', error);
+    }
+  }
+
+  /**
+   * Save FAB position to localStorage
+   */
+  private async saveFabPosition(position: { x: number; y: number }): Promise<void> {
+    try {
+      await chrome.storage.local.set({
+        contextus_fab_position: position
+      });
+    } catch (error) {
+      console.warn('[Contexus] Failed to save FAB position:', error);
+    }
+  }
+
+  /**
+   * Setup clipboard detection for FAB activation
+   */
+  private setupClipboardDetection(): void {
+    // Listen for copy events
+    document.addEventListener('copy', () => {
+      // Use setTimeout to ensure clipboard content is available
+      setTimeout(() => {
+        this.checkClipboardContent();
+      }, 100);
+    });
+  }
+
+  /**
+   * Check clipboard content and activate FAB if valid
+   */
+  private async checkClipboardContent(): Promise<void> {
+    try {
+      // Check if we have clipboard permission
+      const permission = await navigator.permissions.query({ name: 'clipboard-read' as PermissionName });
+      if (permission.state === 'denied') {
+        return;
+      }
+
+      // Read clipboard content
+      const text = await navigator.clipboard.readText();
+
+      // Validate clipboard content (must be at least 1 character)
+      if (text && text.trim().length >= 1) {
+        this.activateFab();
+
+        // Auto-deactivate after 7 seconds
+        setTimeout(() => {
+          this.deactivateFab();
+        }, 7000);
+      }
+    } catch (error) {
+      // Clipboard reading might fail due to permissions or focus
+      console.debug('[Contexus] Clipboard reading failed:', error);
+    }
+  }
+
+  /**
+   * Activate FAB (show active state)
+   */
+  private activateFab(): void {
+    if (this.fabActive) return;
+
+    this.fabActive = true;
+    this.renderFloatingActionButton(); // Re-render with active state
+
+    // Show tooltip near FAB
+    this.showTooltip();
+
+    console.log('[Contexus] FAB activated');
+  }
+
+  /**
+   * Deactivate FAB (hide active state)
+   */
+  private deactivateFab(): void {
+    if (!this.fabActive) return;
+
+    this.fabActive = false;
+    this.renderFloatingActionButton(); // Re-render without active state
+
+    // Hide tooltip
+    this.hideTooltip();
+
+    console.log('[Contexus] FAB deactivated');
+  }
+
+  /** Tooltip helpers */
+  private showTooltip(): void {
+    if (!this.tooltipHost) return;
+
+    // Clear previous timer
+    if (this.tooltipTimer) {
+      clearTimeout(this.tooltipTimer);
+      this.tooltipTimer = null;
+    }
+
+    this.renderTooltip();
+
+    // Auto-hide after 7s
+    this.tooltipTimer = setTimeout(() => {
+      this.hideTooltip();
+    }, 7000);
+  }
+
+  private hideTooltip(): void {
+    if (this.tooltipController) {
+      this.tooltipController.cleanup();
+      this.tooltipController = null;
+    }
+
+    if (this.tooltipTimer) {
+      clearTimeout(this.tooltipTimer);
+      this.tooltipTimer = null;
+    }
+  }
+
+  private renderTooltip(): void {
+    if (!this.tooltipHost) return;
+
+    try {
+      const visible = this.fabActive === true;
+      const anchor = this.fabPosition || { x: window.innerWidth - 55 - 48, y: window.innerHeight - 55 - 48 };
+
+      // Clean existing before re-render
+      if (this.tooltipController) {
+        this.tooltipController.cleanup();
+        this.tooltipController = null;
+      }
+
+      this.tooltipController = ShadowDOMRenderer.renderCaptureTooltip({
+        hostElement: this.tooltipHost,
+        visible,
+        anchorPosition: anchor,
+        onClose: () => this.hideTooltip(),
+        onSelectType: (type) => this.handleTooltipAction(type)
+      });
+    } catch (error) {
+      console.warn('[Contexus] Tooltip rendering failed:', error);
+    }
+  }
+
+  private async handleTooltipAction(type: 'context' | 'template' | 'example' | 'role'): Promise<void> {
+    try {
+      // Reset auto-hide timer when interacting
+      if (this.tooltipTimer) {
+        clearTimeout(this.tooltipTimer);
+        this.tooltipTimer = null;
+      }
+
+      // Read clipboard content with a short fallback
+      let text = ''
+      try {
+        text = await navigator.clipboard.readText()
+      } catch {
+        text = ''
+      }
+
+      if (!text || text.trim().length < 1) {
+        console.debug('[Contexus] No clipboard content to save')
+        return
+      }
+
+      // Ask background to open side panel and prefill
+      await chrome.runtime.sendMessage({
+        type: 'OPEN_SIDEPANEL_FOR_SAVE',
+        payload: { type, content: text }
+      })
+
+      // Keep tooltip visible a bit longer for feedback
+      this.tooltipTimer = setTimeout(() => this.hideTooltip(), 3000)
+    } catch (error) {
+      console.warn('[Contexus] Failed to handle tooltip action:', error)
+    }
+  }
+
   /**
    * Cleanup method for extension unload
    */
@@ -981,6 +1343,33 @@ export class ContentManager {
       this.observer.disconnect();
       this.observer = null;
     }
+
+    // Cleanup FAB
+    if (this.fabController) {
+      this.fabController.cleanup();
+      this.fabController = null;
+    }
+
+    if (this.fabHost) {
+      this.fabHost.remove();
+      this.fabHost = null;
+    }
+
+    if (this.tooltipController) {
+      this.tooltipController.cleanup();
+      this.tooltipController = null;
+    }
+
+    if (this.tooltipHost) {
+      this.tooltipHost.remove();
+      this.tooltipHost = null;
+    }
+
+    if (this.boundResizeHandler) {
+      window.removeEventListener('resize', this.boundResizeHandler);
+      this.boundResizeHandler = null;
+    }
+
     ShadowDOMRenderer.cleanupAll();
     StyleInjector.cleanup();
     CaptureButtonRenderer.clearCaches();

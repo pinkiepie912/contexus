@@ -9,12 +9,30 @@ import * as React from 'react'
 import { createRoot } from 'react-dom/client'
 
 import { ShadowCaptureButton } from '../components/ShadowCaptureButton'
+import { ShadowFloatingActionButton } from '../components/ShadowFloatingActionButton'
+import { ShadowCaptureTooltip } from '../components/ShadowCaptureTooltip'
 import shadowBaseCss from '../styles/shadow-base.css?raw'
 
 export interface ShadowDOMRendererOptions {
   hostElement: Element
   onCapture: () => Promise<void>
   buttonSize?: 'default' | 'sm' | 'lg' | 'icon'
+}
+
+export interface ShadowFABRendererOptions {
+  hostElement: Element
+  active?: boolean | undefined
+  onClick?: (() => void) | undefined
+  initialPosition?: { x: number; y: number } | undefined
+  onPositionChange?: ((position: { x: number; y: number }) => void) | undefined
+}
+
+export interface ShadowTooltipRendererOptions {
+  hostElement: Element
+  visible?: boolean | undefined
+  anchorPosition?: { x: number; y: number } | undefined
+  onClose?: (() => void) | undefined
+  onSelectType?: ((type: 'context' | 'template' | 'example' | 'role') => void) | undefined
 }
 
 export class ShadowDOMRenderer {
@@ -72,6 +90,48 @@ export class ShadowDOMRenderer {
 
     const element = (
       <ShadowCaptureButton onCapture={options.onCapture} size={options.buttonSize || 'icon'} />
+    )
+    const controller = this.renderComponent({ hostElement: options.hostElement, element })
+    this.instances.set(options.hostElement, controller)
+    return controller
+  }
+
+  /**
+   * Static method to render floating action button in Shadow DOM
+   */
+  static renderFloatingActionButton(options: ShadowFABRendererOptions): { cleanup: () => void } {
+    // If a controller already exists for this host, cleanup before re-render
+    const existing = this.instances.get(options.hostElement)
+    if (existing) existing.cleanup()
+
+    const element = (
+      <ShadowFloatingActionButton
+        active={options.active}
+        onClick={options.onClick}
+        initialPosition={options.initialPosition}
+        onPositionChange={options.onPositionChange}
+      />
+    )
+    const controller = this.renderComponent({ hostElement: options.hostElement, element })
+    this.instances.set(options.hostElement, controller)
+    return controller
+  }
+
+  /**
+   * Static method to render contextual capture tooltip in Shadow DOM
+   */
+  static renderCaptureTooltip(options: ShadowTooltipRendererOptions): { cleanup: () => void } {
+    // If a controller already exists for this host, cleanup before re-render
+    const existing = this.instances.get(options.hostElement)
+    if (existing) existing.cleanup()
+
+    const element = (
+      <ShadowCaptureTooltip
+        visible={options.visible}
+        anchorPosition={options.anchorPosition}
+        onClose={options.onClose}
+        onSelectType={options.onSelectType}
+      />
     )
     const controller = this.renderComponent({ hostElement: options.hostElement, element })
     this.instances.set(options.hostElement, controller)

@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect } from 'react';
+
 import { useTheme, type Theme } from '~/hooks/useTheme';
 
 interface ThemeContextType {

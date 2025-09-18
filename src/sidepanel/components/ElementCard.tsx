@@ -50,7 +50,7 @@ export const ElementCard: React.FC<ElementCardProps> = ({
     document.body.classList.add('dragging-element');
   };
 
-  const handleDragEnd = (e: React.DragEvent<HTMLDivElement>) => {
+  const handleDragEnd = (_e: React.DragEvent<HTMLDivElement>) => {
     // Reset dragging state
     setIsDragging(false);
 

@@ -11,7 +11,7 @@ import {
   DialogTitle,
 } from "~/components/ui/dialog";
 
-interface CommandProps extends React.HTMLAttributes<HTMLDivElement> {}
+type CommandProps = React.HTMLAttributes<HTMLDivElement>
 
 export function Command({ className, ...props }: CommandProps) {
   return (

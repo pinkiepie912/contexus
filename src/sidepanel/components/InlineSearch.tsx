@@ -47,7 +47,7 @@ export function InlineSearch({
   const [query, setQuery] = useState("");
   const { searchElements, isLoading } = useElements();
   const [results, setResults] = useState<Element[]>([]);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const _inputRef = useRef<HTMLInputElement>(null);
 
   // Debounced search effect
   useEffect(() => {
